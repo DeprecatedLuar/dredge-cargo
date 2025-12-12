@@ -126,16 +126,8 @@ func Decrypt(encrypted []byte, password string) ([]byte, error) {
 		password = cachedPassword
 	} else if password == "" {
 		return nil, fmt.Errorf("no cached password and no password provided")
-	} else {
-		if DebugMode {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Decrypt: using PROVIDED password %q, caching it\n", password)
-		}
-		// Cache the password for this session
-		if err := CachePassword(password); err != nil {
-			// Non-fatal: continue even if caching fails
-			fmt.Fprintf(io.Discard, "warning: failed to cache password: %v\n", err)
-		}
 	}
+	// NOTE: Don't cache password here - let caller cache after successful verification
 
 	// Derive key from password + file's unique salt
 	key := argon2.IDKey(
@@ -232,9 +224,13 @@ func CachePassword(password string) error {
 	return nil
 }
 
-// ClearSession removes the session cache (not currently used, kept for compatibility).
+// ClearSession removes the session cache file.
 func ClearSession() error {
-	// Session cache is per-terminal and auto-cleans on exit, so this is optional
+	cachePath := filepath.Join(getSessionDir(), sessionCacheFile)
+	err := os.Remove(cachePath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to clear session cache: %w", err)
+	}
 	return nil
 }
 
