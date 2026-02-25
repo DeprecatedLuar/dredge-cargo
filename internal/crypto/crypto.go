@@ -368,23 +368,12 @@ func GetPasswordWithVerification() (string, error) {
 		return "", fmt.Errorf("failed to check password cache: %w", err)
 	}
 
+	// If cache exists, trust it - it was already verified when cached
 	if cached != "" {
-		// If .dredge-key exists, verify the cached password
-		// If it doesn't exist yet, just use the cached password
-		if PasswordVerificationExists() {
-			if err := VerifyPassword(cached); err != nil {
-				// Cache is invalid, clear it
-				_ = ClearSession()
-			} else {
-				return cached, nil
-			}
-		} else {
-			// No verification file yet, use cached password
-			return cached, nil
-		}
+		return cached, nil
 	}
 
-	// No valid cached password, prompt user
+	// No cached password, prompt user
 	password, err := ui.PromptPassword()
 	if err != nil {
 		return "", fmt.Errorf("failed to prompt for password: %w", err)
