@@ -192,20 +192,41 @@ func main() {
 			// Check if this is a new session (no cached password)
 			isNewSession := !crypto.HasActiveSession()
 
-			// Cache password if provided via flag
+			// If password provided via flag, try to derive and cache key immediately.
+			// If vault doesn't exist yet, store as pending (used once by GetKeyWithVerification).
 			if password := c.String("password"); password != "" {
-				Debugf("Caching password from --password flag")
-				if err := crypto.CachePassword(password); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to cache password: %v\n", err)
+				Debugf("Password provided via --password flag")
+				if crypto.PasswordVerificationExists() {
+					key, err := crypto.DeriveKeyFromVault(password)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to verify --password flag: %v\n", err)
+					} else {
+						if err := crypto.CacheKey(key); err != nil {
+							fmt.Fprintf(os.Stderr, "Warning: failed to cache key: %v\n", err)
+						} else {
+							Debugf("Key derived and cached from --password flag")
+							isNewSession = true
+						}
+					}
 				} else {
-					Debugf("Password cached successfully")
-					isNewSession = true // Treat flag password as new session
+					// First-time vault — store pending, GetKeyWithVerification will use it
+					crypto.SetPendingPassword(password)
+					Debugf("Stored pending password for first-time vault setup")
+					isNewSession = true
 				}
 			}
 
 			// Run self-healing on new session
 			if isNewSession {
 				selfheal.Run()
+			}
+
+			// Ensure a git repo is connected (skip for init/help — those don't need it)
+			sub := c.Args().First()
+			if sub != "init" && sub != "help" && sub != "h" {
+				if err := commands.EnsureInitialized(); err != nil {
+					return err
+				}
 			}
 
 			return nil

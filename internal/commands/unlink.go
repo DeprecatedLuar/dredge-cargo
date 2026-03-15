@@ -25,12 +25,12 @@ func HandleUnlink(args []string) error {
 	id := ids[0]
 
 	// Get item for display before unlinking
-	password, err := crypto.GetPasswordWithVerification()
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
 		return err
 	}
 
-	item, err := storage.ReadItem(id, password)
+	item, err := storage.ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("failed to read item: %w", err)
 	}

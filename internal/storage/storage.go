@@ -192,7 +192,7 @@ func EnsureDirectories() error {
 }
 
 // CreateItem creates a new item and saves it to disk (encrypted)
-func CreateItem(id string, item *Item, password string) error {
+func CreateItem(id string, item *Item, key []byte) error {
 	if err := EnsureDirectories(); err != nil {
 		return fmt.Errorf("failed to ensure directories: %w", err)
 	}
@@ -215,7 +215,7 @@ func CreateItem(id string, item *Item, password string) error {
 	tomlData := buf.Bytes()
 
 	// Encrypt the TOML data
-	encryptedData, err := crypto.Encrypt(tomlData, password)
+	encryptedData, err := crypto.Encrypt(tomlData, key)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt item: %w", err)
 	}
@@ -228,10 +228,10 @@ func CreateItem(id string, item *Item, password string) error {
 }
 
 // ReadItem reads an item from disk by ID (decrypts automatically)
-func ReadItem(id string, password string) (*Item, error) {
+func ReadItem(id string, key []byte) (*Item, error) {
 	// If linked, sync spawned file changes before reading
 	if IsLinked(id) {
-		if err := syncItemIfNeeded(id, password); err != nil {
+		if err := syncItemIfNeeded(id, key); err != nil {
 			// Non-fatal: log warning but continue
 			fmt.Fprintf(os.Stderr, "Warning: sync failed for %s: %v\n", id, err)
 		}
@@ -250,8 +250,7 @@ func ReadItem(id string, password string) (*Item, error) {
 		return nil, fmt.Errorf("failed to read item file: %w", err)
 	}
 
-	// Decrypt the data (uses session cache if available)
-	data, err := crypto.Decrypt(encryptedData, password)
+	data, err := crypto.Decrypt(encryptedData, key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt item: %w", err)
 	}
@@ -265,7 +264,7 @@ func ReadItem(id string, password string) (*Item, error) {
 }
 
 // UpdateItem updates an existing item on disk (encrypted)
-func UpdateItem(id string, item *Item, password string) error {
+func UpdateItem(id string, item *Item, key []byte) error {
 	itemPath, err := GetItemPath(id)
 	if err != nil {
 		return fmt.Errorf("failed to get item path: %w", err)
@@ -286,7 +285,7 @@ func UpdateItem(id string, item *Item, password string) error {
 	tomlData := buf.Bytes()
 
 	// Encrypt the TOML data
-	encryptedData, err := crypto.Encrypt(tomlData, password)
+	encryptedData, err := crypto.Encrypt(tomlData, key)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt item: %w", err)
 	}

@@ -19,14 +19,24 @@ import (
 // Debug mode flag (set from main)
 var DebugMode bool
 
+// pendingPassword holds a password provided via --password flag, used once by GetKeyWithVerification.
+// In-memory only — never written to disk.
+var pendingPassword string
+
+// SetPendingPassword stores a password to be used once by GetKeyWithVerification instead of prompting.
+// Called from main.go when --password flag is provided.
+func SetPendingPassword(pw string) {
+	pendingPassword = pw
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
 
-// Encryption constants
 const (
-	SaltSize  = 16 // 128 bits
+	SaltSize  = 16 // 128 bits — global salt stored in .dredge-key
 	NonceSize = 12 // 96 bits (standard GCM nonce size)
+	KeySize   = 32 // 256 bits for AES-256
 
 	// Argon2id parameters (per RFC 9106 recommendations)
 	Argon2Time      = 1         // 1 iteration
@@ -45,124 +55,72 @@ const (
 // Core Encryption Functions
 // ============================================================================
 
-// Encrypt encrypts plaintext using password-derived key (Argon2id + AES-256-GCM).
-// Returns binary format: [16B salt][12B nonce][N bytes ciphertext + 16B auth tag]
-func Encrypt(plaintext []byte, password string) ([]byte, error) {
-	if password == "" {
-		return nil, fmt.Errorf("password cannot be empty")
+// Encrypt encrypts plaintext using a pre-derived 32-byte key (AES-256-GCM).
+// Returns binary format: [12B nonce][N bytes ciphertext + 16B auth tag]
+// Use DeriveKey or GetKeyWithVerification to obtain a key.
+func Encrypt(plaintext []byte, key []byte) ([]byte, error) {
+	if len(key) != KeySize {
+		return nil, fmt.Errorf("key must be %d bytes, got %d", KeySize, len(key))
 	}
 
-	// Generate random salt
-	salt := make([]byte, SaltSize)
-	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
-		return nil, fmt.Errorf("failed to generate salt: %w", err)
-	}
-
-	// Derive key from password using Argon2id
-	key := argon2.IDKey(
-		[]byte(password),
-		salt,
-		Argon2Time,
-		Argon2Memory,
-		Argon2Threads,
-		Argon2KeyLength,
-	)
-
-	// Create AES cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	// Create GCM mode
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCM: %w", err)
 	}
 
-	// Generate random nonce
 	nonce := make([]byte, NonceSize)
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
 
-	// Encrypt and authenticate
 	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
 
-	// Construct final format: salt || nonce || ciphertext
-	result := make([]byte, 0, SaltSize+NonceSize+len(ciphertext))
-	result = append(result, salt...)
+	result := make([]byte, 0, NonceSize+len(ciphertext))
 	result = append(result, nonce...)
 	result = append(result, ciphertext...)
 
 	return result, nil
 }
 
-// Decrypt decrypts encrypted data using password.
-// Checks session cache first, prompts for password if needed.
-// Input format: [16B salt][12B nonce][N bytes ciphertext + 16B auth tag]
-func Decrypt(encrypted []byte, password string) ([]byte, error) {
-	// Validate minimum size: salt + nonce + auth tag
-	minSize := SaltSize + NonceSize + 16 // 16 = GCM auth tag size
+// Decrypt decrypts data using a pre-derived 32-byte key.
+// Input format: [12B nonce][N bytes ciphertext + 16B auth tag]
+func Decrypt(encrypted []byte, key []byte) ([]byte, error) {
+	if len(key) != KeySize {
+		return nil, fmt.Errorf("key must be %d bytes, got %d", KeySize, len(key))
+	}
+
+	minSize := NonceSize + 16 // 16 = GCM auth tag
 	if len(encrypted) < minSize {
 		return nil, fmt.Errorf("encrypted data too short: got %d bytes, need at least %d", len(encrypted), minSize)
 	}
 
-	// Extract salt, nonce, and ciphertext
-	salt := encrypted[:SaltSize]
-	nonce := encrypted[SaltSize : SaltSize+NonceSize]
-	ciphertext := encrypted[SaltSize+NonceSize:]
+	nonce := encrypted[:NonceSize]
+	ciphertext := encrypted[NonceSize:]
 
-	// Try to get cached password first
-	cachedPassword, err := GetCachedPassword()
-	if err != nil {
-		return nil, fmt.Errorf("failed to check session cache: %w", err)
-	}
-
-	// Use cached password if available, otherwise use provided password
-	if cachedPassword != "" {
-		if DebugMode {
-			fmt.Fprintf(os.Stderr, "[DEBUG] Decrypt: using CACHED password %q instead of provided %q\n", cachedPassword, password)
-		}
-		password = cachedPassword
-	} else if password == "" {
-		return nil, fmt.Errorf("no cached password and no password provided")
-	}
-	// NOTE: Don't cache password here - let caller cache after successful verification
-
-	// Derive key from password + file's unique salt
-	key := argon2.IDKey(
-		[]byte(password),
-		salt,
-		Argon2Time,
-		Argon2Memory,
-		Argon2Threads,
-		Argon2KeyLength,
-	)
-
-	// Create AES cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	// Create GCM mode
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCM: %w", err)
 	}
 
-	// Decrypt and verify authentication tag
 	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, fmt.Errorf("decryption failed (wrong password or tampered data): %w", err)
+		return nil, fmt.Errorf("decryption failed (wrong key or tampered data): %w", err)
 	}
 
 	return plaintext, nil
 }
 
 // DeriveKey derives an encryption key from password and salt using Argon2id.
-// Used for manual key derivation when needed.
 func DeriveKey(password string, salt []byte) []byte {
 	return argon2.IDKey(
 		[]byte(password),
@@ -174,35 +132,44 @@ func DeriveKey(password string, salt []byte) []byte {
 	)
 }
 
+// ExtractSalt returns the first SaltSize bytes from data (global salt from .dredge-key).
+func ExtractSalt(data []byte) []byte {
+	if len(data) < SaltSize {
+		return nil
+	}
+	return data[:SaltSize]
+}
+
 // ============================================================================
 // Session Management
 // ============================================================================
 
-// Session cache configuration
-const (
-	sessionCacheFile = ".session" // Hidden file for security
-)
+const sessionCacheFile = ".key" // Raw 32-byte derived master key
 
-// GetCachedPassword retrieves the cached password from session cache.
-// Returns empty string if cache doesn't exist.
-func GetCachedPassword() (string, error) {
+// GetCachedKey retrieves the cached 32-byte master key from session.
+// Returns nil if cache doesn't exist or is not exactly KeySize bytes.
+func GetCachedKey() ([]byte, error) {
 	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil // Cache doesn't exist, not an error
+			return nil, nil
 		}
-		return "", fmt.Errorf("failed to read session cache: %w", err)
+		return nil, fmt.Errorf("failed to read session cache: %w", err)
 	}
 
-	return string(data), nil
+	if len(data) != KeySize {
+		return nil, nil // corrupt cache, treat as missing
+	}
+
+	return data, nil
 }
 
-// CachePassword stores the password in session cache.
-func CachePassword(password string) error {
-	if password == "" {
-		return fmt.Errorf("password cannot be empty")
+// CacheKey stores the 32-byte master key in session.
+func CacheKey(key []byte) error {
+	if len(key) != KeySize {
+		return fmt.Errorf("key must be %d bytes, got %d", KeySize, len(key))
 	}
 
 	if err := os.MkdirAll(session.Dir(), 0700); err != nil {
@@ -210,8 +177,8 @@ func CachePassword(password string) error {
 	}
 
 	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
-	if err := os.WriteFile(cachePath, []byte(password), 0600); err != nil {
-		return fmt.Errorf("failed to cache password: %w", err)
+	if err := os.WriteFile(cachePath, key, 0600); err != nil {
+		return fmt.Errorf("failed to cache key: %w", err)
 	}
 
 	return nil
@@ -227,10 +194,10 @@ func ClearSession() error {
 	return nil
 }
 
-// HasActiveSession checks if a session cache exists for current terminal.
+// HasActiveSession checks if a valid session key exists for current terminal.
 func HasActiveSession() bool {
-	password, err := GetCachedPassword()
-	return err == nil && password != ""
+	key, err := GetCachedKey()
+	return err == nil && len(key) == KeySize
 }
 
 // GetPPID returns the parent process ID (for debugging/testing).
@@ -242,9 +209,8 @@ func GetPPID() string {
 // Password Verification
 // ============================================================================
 
-// GetVerifyFilePath returns the full path to the password verification file
+// GetVerifyFilePath returns the full path to the password verification file.
 func GetVerifyFilePath() (string, error) {
-	// Use XDG_DATA_HOME or default to ~/.local/share
 	baseDir := os.Getenv("XDG_DATA_HOME")
 	if baseDir == "" {
 		homeDir, err := os.UserHomeDir()
@@ -258,7 +224,7 @@ func GetVerifyFilePath() (string, error) {
 	return filepath.Join(dredgeDir, PasswordVerifyFile), nil
 }
 
-// PasswordVerificationExists checks if the .dredge-key file exists
+// PasswordVerificationExists checks if the .dredge-key file exists.
 func PasswordVerificationExists() bool {
 	path, err := GetVerifyFilePath()
 	if err != nil {
@@ -269,7 +235,31 @@ func PasswordVerificationExists() bool {
 	return err == nil
 }
 
-// CreatePasswordVerification creates the .dredge-key file with the given password
+// NewVerificationFileBytes generates the bytes for a .dredge-key file and the derived master key.
+// File format: [16B salt][12B nonce][ciphertext + auth tag]
+// Returns (fileBytes, masterKey, error). Use this when you need both the bytes and the key.
+func NewVerificationFileBytes(password string) ([]byte, []byte, error) {
+	if password == "" {
+		return nil, nil, fmt.Errorf("password cannot be empty")
+	}
+
+	salt := make([]byte, SaltSize)
+	if _, err := io.ReadFull(rand.Reader, salt); err != nil {
+		return nil, nil, fmt.Errorf("failed to generate salt: %w", err)
+	}
+
+	key := DeriveKey(password, salt)
+
+	encrypted, err := Encrypt([]byte(VerificationContent), key)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to encrypt verification: %w", err)
+	}
+
+	fileBytes := append(salt, encrypted...)
+	return fileBytes, key, nil
+}
+
+// CreatePasswordVerification creates the .dredge-key file with the given password.
 func CreatePasswordVerification(password string) error {
 	if password == "" {
 		return fmt.Errorf("password cannot be empty")
@@ -280,126 +270,138 @@ func CreatePasswordVerification(password string) error {
 		return fmt.Errorf("failed to get verify file path: %w", err)
 	}
 
-	// Ensure parent directory exists
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	// Encrypt the verification content
-	encrypted, err := Encrypt([]byte(VerificationContent), password)
+	data, _, err := NewVerificationFileBytes(password)
 	if err != nil {
-		return fmt.Errorf("failed to encrypt verification data: %w", err)
+		return err
 	}
 
-	// Write to file
-	if err := os.WriteFile(path, encrypted, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write verification file: %w", err)
 	}
 
 	return nil
 }
 
-// VerifyPassword attempts to decrypt .dredge-key with the given password
-// Returns nil if password is correct, error otherwise
-func VerifyPassword(password string) error {
+// DeriveKeyFromVault reads .dredge-key, derives the master key from password, and verifies it.
+// Returns the master key if password is correct. Does NOT cache the key.
+func DeriveKeyFromVault(password string) ([]byte, error) {
 	if password == "" {
-		return fmt.Errorf("password cannot be empty")
+		return nil, fmt.Errorf("password cannot be empty")
 	}
 
 	path, err := GetVerifyFilePath()
 	if err != nil {
-		return fmt.Errorf("failed to get verify file path: %w", err)
+		return nil, fmt.Errorf("failed to get verify file path: %w", err)
 	}
 
-	// Check if file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return fmt.Errorf("password verification file not found (run 'dredge add' to create vault)")
+		return nil, fmt.Errorf("password verification file not found (run 'dredge add' to create vault)")
 	}
 
-	// Read encrypted data
-	encrypted, err := os.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("failed to read verification file: %w", err)
+		return nil, fmt.Errorf("failed to read verification file: %w", err)
 	}
 
-	// Try to decrypt WITHOUT using session cache
-	// We need to verify THIS specific password, not fall back to cache
-	// So we temporarily clear cache, decrypt, then restore if needed
-	cachedPassword, _ := GetCachedPassword()
-	if DebugMode {
-		fmt.Fprintf(os.Stderr, "[DEBUG] VerifyPassword: cached=%q, provided=%q\n", cachedPassword, password)
-	}
-	_ = ClearSession() // Clear cache temporarily
-
-	decrypted, err := Decrypt(encrypted, password)
-
-	// Restore cache if there was one (and it's different from test password)
-	if cachedPassword != "" && cachedPassword != password {
-		_ = CachePassword(cachedPassword)
+	if len(data) < SaltSize+NonceSize+16 {
+		return nil, fmt.Errorf("verification file corrupted (too short)")
 	}
 
+	salt := data[:SaltSize]
+	encrypted := data[SaltSize:]
+
+	key := DeriveKey(password, salt)
+
+	decrypted, err := Decrypt(encrypted, key)
 	if err != nil {
-		// Decryption failed = wrong password
-		return fmt.Errorf("wrong password")
+		return nil, fmt.Errorf("wrong password")
 	}
 
-	// Verify content matches expected value
 	if string(decrypted) != VerificationContent {
-		return fmt.Errorf("verification file corrupted (expected %q, got %q)", VerificationContent, string(decrypted))
+		return nil, fmt.Errorf("verification file corrupted (unexpected content)")
 	}
 
-	return nil
+	return key, nil
 }
 
-// GetPasswordWithVerification prompts for password and verifies it against .dredge-key
-// If .dredge-key doesn't exist, creates it with the entered password
-func GetPasswordWithVerification() (string, error) {
+// VerifyPassword checks if the given password is correct for the current vault.
+func VerifyPassword(password string) error {
+	_, err := DeriveKeyFromVault(password)
+	return err
+}
+
+// GetKeyWithVerification is the main auth flow.
+// Checks session cache; if miss, prompts password, verifies against .dredge-key, caches key.
+// Returns the 32-byte master key.
+func GetKeyWithVerification() ([]byte, error) {
 	// Check session cache first
-	cached, err := GetCachedPassword()
+	cached, err := GetCachedKey()
 	if err != nil {
-		return "", fmt.Errorf("failed to check password cache: %w", err)
+		return nil, fmt.Errorf("failed to check key cache: %w", err)
 	}
 
-	// If cache exists, trust it - it was already verified when cached
-	if cached != "" {
+	if len(cached) == KeySize {
 		return cached, nil
 	}
 
-	// No cached password, prompt user
-	password, err := ui.PromptPassword()
-	if err != nil {
-		return "", fmt.Errorf("failed to prompt for password: %w", err)
+	// No cached key — use pending password (from --password flag) or prompt
+	var password string
+	if pendingPassword != "" {
+		password = pendingPassword
+		pendingPassword = "" // clear immediately after use
+	} else {
+		var err error
+		password, err = ui.PromptPassword()
+		if err != nil {
+			return nil, fmt.Errorf("failed to prompt for password: %w", err)
+		}
 	}
 
-	// DEBUG: show what we received
 	if DebugMode {
-		fmt.Fprintf(os.Stderr, "[DEBUG] password len=%d bytes=%v\n", len(password), []byte(password))
+		fmt.Fprintf(os.Stderr, "[DEBUG] password len=%d\n", len(password))
 	}
 
 	if password == "" {
-		return "", fmt.Errorf("password cannot be empty")
+		return nil, fmt.Errorf("password cannot be empty")
 	}
 
-	// Check if verification file exists
+	var key []byte
+
 	if !PasswordVerificationExists() {
-		// First time - create verification file
-		if err := CreatePasswordVerification(password); err != nil {
-			return "", fmt.Errorf("failed to create password verification: %w", err)
+		// First time — create verification file
+		path, err := GetVerifyFilePath()
+		if err != nil {
+			return nil, err
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			return nil, fmt.Errorf("failed to create directory: %w", err)
+		}
+		fileBytes, derivedKey, err := NewVerificationFileBytes(password)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create password verification: %w", err)
+		}
+		if err := os.WriteFile(path, fileBytes, 0600); err != nil {
+			return nil, fmt.Errorf("failed to write verification file: %w", err)
 		}
 		fmt.Fprintln(os.Stderr, "Created password verification file")
+		key = derivedKey
 	} else {
-		// Verify password
-		if err := VerifyPassword(password); err != nil {
-			return "", err
+		// Verify password and derive key
+		derivedKey, err := DeriveKeyFromVault(password)
+		if err != nil {
+			return nil, err
 		}
+		key = derivedKey
 	}
 
-	// Cache the verified password
-	if err := CachePassword(password); err != nil {
-		// Non-fatal: just warn
-		fmt.Fprintf(os.Stderr, "Warning: failed to cache password: %v\n", err)
+	// Cache the key
+	if err := CacheKey(key); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to cache key: %v\n", err)
 	}
 
-	return password, nil
+	return key, nil
 }

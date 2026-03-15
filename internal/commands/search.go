@@ -17,10 +17,10 @@ const (
 )
 
 func HandleSearch(query string, luck bool, forceSearch bool) error {
-	// Get password (with verification and caching)
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key (checks session cache, prompts if needed)
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("password error: %w", err)
+		return fmt.Errorf("key error: %w", err)
 	}
 
 	// Load all item IDs
@@ -37,7 +37,7 @@ func HandleSearch(query string, luck bool, forceSearch bool) error {
 	// Load and decrypt all items
 	items := make(map[string]*storage.Item)
 	for _, id := range ids {
-		item, err := storage.ReadItem(id, password)
+		item, err := storage.ReadItem(id, key)
 		if err != nil {
 			// Skip items that fail to decrypt (corrupted/wrong format)
 			continue

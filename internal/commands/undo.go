@@ -29,10 +29,10 @@ func HandleUndo(args []string) error {
 		return fmt.Errorf("cannot undo: %w", err)
 	}
 
-	// Get password to read item titles
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key to read item titles
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("password error: %w", err)
+		return fmt.Errorf("key error: %w", err)
 	}
 
 	// Restore each item
@@ -48,7 +48,7 @@ func HandleUndo(args []string) error {
 		restoredIDs = append(restoredIDs, id)
 
 		// Read item to display title in confirmation
-		item, err := storage.ReadItem(id, password)
+		item, err := storage.ReadItem(id, key)
 		if err != nil {
 			// Non-fatal, item is already restored
 			fmt.Printf("+ [%s]\n", id)

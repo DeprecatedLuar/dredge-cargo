@@ -21,10 +21,10 @@ func HandleRemove(args []string) error {
 		return err
 	}
 
-	// Get password once for all items
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key once for all items
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("password error: %w", err)
+		return fmt.Errorf("key error: %w", err)
 	}
 
 	// Track successfully deleted IDs for undo cache
@@ -42,7 +42,7 @@ func HandleRemove(args []string) error {
 		}
 
 		// Read item to display title
-		item, err := storage.ReadItem(id, password)
+		item, err := storage.ReadItem(id, key)
 		if err != nil {
 			return fmt.Errorf("failed to read item [%s]: %w", id, err)
 		}
@@ -71,5 +71,6 @@ func HandleRemove(args []string) error {
 		}
 	}
 
+	warnIfUnpushed()
 	return nil
 }

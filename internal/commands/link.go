@@ -73,12 +73,12 @@ func HandleLink(args []string) error {
 	}
 
 	// Get item for display
-	password, err := crypto.GetPasswordWithVerification()
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
 		return err
 	}
 
-	item, err := storage.ReadItem(id, password)
+	item, err := storage.ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("link created but failed to read item for display: %w", err)
 	}

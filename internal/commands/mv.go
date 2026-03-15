@@ -88,5 +88,6 @@ func HandleMove(args []string) error {
 	}
 
 	fmt.Printf("✓ Renamed [%s] → [%s]\n", oldID, newID)
+	warnIfUnpushed()
 	return nil
 }

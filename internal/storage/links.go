@@ -146,7 +146,7 @@ func hashSpawnedFile(id string) (string, error) {
 }
 
 // syncItemIfNeeded checks if spawned file changed and syncs to encrypted item
-func syncItemIfNeeded(id, password string) error {
+func syncItemIfNeeded(id string, key []byte) error {
 	manifest, err := LoadManifest()
 	if err != nil {
 		return err
@@ -172,7 +172,7 @@ func syncItemIfNeeded(id, password string) error {
 	// Raw read to avoid recursion (ReadItem calls syncItemIfNeeded)
 	itemPath, _ := GetItemPath(id)
 	encryptedData, _ := os.ReadFile(itemPath)
-	decryptedData, err := crypto.Decrypt(encryptedData, password)
+	decryptedData, err := crypto.Decrypt(encryptedData, key)
 	if err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func syncItemIfNeeded(id, password string) error {
 	}
 
 	item.Content.Text = string(spawnedContent)
-	return UpdateItem(id, &item, password)
+	return UpdateItem(id, &item, key)
 }
 
 // UpdateManifestHash recomputes and updates the hash for a linked item
@@ -229,12 +229,12 @@ func Link(id, targetPath string, force bool) error {
 		return fmt.Errorf("item %s already linked to %s", id, entry.Path)
 	}
 
-	password, err := crypto.GetPasswordWithVerification()
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
 		return err
 	}
 
-	item, err := ReadItem(id, password)
+	item, err := ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("failed to load item: %w", err)
 	}
@@ -287,8 +287,8 @@ func Unlink(id string) error {
 
 	// Sync spawned changes before unlinking (if item still exists)
 	if itemExists, _ := ItemExists(id); itemExists {
-		if password, err := crypto.GetPasswordWithVerification(); err == nil {
-			ReadItem(id, password) // Triggers sync, ignore errors
+		if key, err := crypto.GetKeyWithVerification(); err == nil {
+			ReadItem(id, key) // Triggers sync, ignore errors
 		}
 	}
 

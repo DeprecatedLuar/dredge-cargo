@@ -27,13 +27,13 @@ func HandleExport(args []string) error {
 
 	id := ids[0]
 
-	// Get password and read item
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key and read item
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
 		return err
 	}
 
-	item, err := storage.ReadItem(id, password)
+	item, err := storage.ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("failed to read item: %w", err)
 	}

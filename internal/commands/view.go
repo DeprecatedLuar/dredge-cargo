@@ -21,14 +21,14 @@ func HandleView(args []string) error {
 	}
 	id := ids[0]
 
-	// Get password with verification
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key (checks session cache, prompts if needed)
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("failed to get password: %w", err)
+		return fmt.Errorf("failed to get key: %w", err)
 	}
 
 	// Read and decrypt item
-	item, err := storage.ReadItem(id, password)
+	item, err := storage.ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("failed to read item: %w", err)
 	}

@@ -30,8 +30,9 @@ func HandlePasswd() error {
 		return fmt.Errorf("failed to prompt for current password: %w", err)
 	}
 
-	// 2. Verify current password against .dredge-key
-	if err := crypto.VerifyPassword(currentPassword); err != nil {
+	// 2. Derive current master key (also verifies the password)
+	currentKey, err := crypto.DeriveKeyFromVault(currentPassword)
+	if err != nil {
 		return fmt.Errorf("current password verification failed: %w", err)
 	}
 
@@ -51,18 +52,25 @@ func HandlePasswd() error {
 		return fmt.Errorf("failed to list items: %w", err)
 	}
 
+	// Generate new key file bytes and derive new master key
+	newKeyFileBytes, newKey, err := crypto.NewVerificationFileBytes(newPassword)
+	if err != nil {
+		return fmt.Errorf("failed to generate new verification: %w", err)
+	}
+
 	if len(itemIDs) == 0 {
 		// No items to re-encrypt, just update the key file
-		if err := updatePasswordVerification(newPassword); err != nil {
+		if err := updatePasswordVerification(newKeyFileBytes, newKey); err != nil {
 			return fmt.Errorf("failed to update password verification: %w", err)
 		}
+		warnIfUnpushed()
 		return nil
 	}
 
-	// 5. Load all items into memory (decrypt with current password)
+	// 5. Load all items into memory (decrypt with current key)
 	items := make(map[string]*storage.Item)
 	for _, id := range itemIDs {
-		item, err := storage.ReadItem(id, currentPassword)
+		item, err := storage.ReadItem(id, currentKey)
 		if err != nil {
 			return fmt.Errorf("failed to decrypt item %s: %w", id, err)
 		}
@@ -98,21 +106,21 @@ func HandlePasswd() error {
 		var buf bytes.Buffer
 		encoder := toml.NewEncoder(&buf)
 		if err := encoder.Encode(item); err != nil {
-			_ = os.RemoveAll(tmpDir) // Cleanup on failure
+			_ = os.RemoveAll(tmpDir)
 			return fmt.Errorf("failed to encode item %s: %w", id, err)
 		}
 
-		// Encrypt with new password
-		encryptedData, err := crypto.Encrypt(buf.Bytes(), newPassword)
+		// Encrypt with new key
+		encryptedData, err := crypto.Encrypt(buf.Bytes(), newKey)
 		if err != nil {
-			_ = os.RemoveAll(tmpDir) // Cleanup on failure
+			_ = os.RemoveAll(tmpDir)
 			return fmt.Errorf("failed to encrypt item %s: %w", id, err)
 		}
 
 		// Write to tmp directory
 		tmpItemPath := filepath.Join(tmpDir, id)
 		if err := os.WriteFile(tmpItemPath, encryptedData, 0600); err != nil {
-			_ = os.RemoveAll(tmpDir) // Cleanup on failure
+			_ = os.RemoveAll(tmpDir)
 			return fmt.Errorf("failed to write item %s: %w", id, err)
 		}
 	}
@@ -129,7 +137,7 @@ func HandlePasswd() error {
 		return fmt.Errorf("re-encryption failed: expected %d items, got %d", len(itemIDs), len(tmpEntries))
 	}
 
-	// 11. Create new .dredge-key.tmp
+	// 11. Write new .dredge-key.tmp
 	keyPath, err := crypto.GetVerifyFilePath()
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
@@ -139,13 +147,7 @@ func HandlePasswd() error {
 	keyTmpPath := filepath.Join(dredgeDir, keyTmpName)
 	keyOldPath := filepath.Join(dredgeDir, keyOldName)
 
-	encryptedKey, err := crypto.Encrypt([]byte(crypto.VerificationContent), newPassword)
-	if err != nil {
-		_ = os.RemoveAll(tmpDir)
-		return fmt.Errorf("failed to encrypt new verification key: %w", err)
-	}
-
-	if err := os.WriteFile(keyTmpPath, encryptedKey, 0600); err != nil {
+	if err := os.WriteFile(keyTmpPath, newKeyFileBytes, 0600); err != nil {
 		_ = os.RemoveAll(tmpDir)
 		return fmt.Errorf("failed to write new verification key: %w", err)
 	}
@@ -183,18 +185,17 @@ func HandlePasswd() error {
 	_ = os.RemoveAll(oldDir)
 	_ = os.Remove(keyOldPath)
 
-	// 14. Update session cache with new password
-	if err := crypto.CachePassword(newPassword); err != nil {
-		// Non-fatal: just warn
+	// 14. Update session cache with new key
+	if err := crypto.CacheKey(newKey); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update session cache: %v\n", err)
 	}
 
+	warnIfUnpushed()
 	return nil
 }
 
-// updatePasswordVerification updates the .dredge-key file with a new password
-// Used when there are no items to re-encrypt
-func updatePasswordVerification(newPassword string) error {
+// updatePasswordVerification updates the .dredge-key file when there are no items to re-encrypt
+func updatePasswordVerification(newKeyFileBytes []byte, newKey []byte) error {
 	keyPath, err := crypto.GetVerifyFilePath()
 	if err != nil {
 		return fmt.Errorf("failed to get key file path: %w", err)
@@ -204,13 +205,7 @@ func updatePasswordVerification(newPassword string) error {
 	keyTmpPath := filepath.Join(dredgeDir, keyTmpName)
 	keyOldPath := filepath.Join(dredgeDir, keyOldName)
 
-	// Create new encrypted verification file
-	encryptedKey, err := crypto.Encrypt([]byte(crypto.VerificationContent), newPassword)
-	if err != nil {
-		return fmt.Errorf("failed to encrypt new verification key: %w", err)
-	}
-
-	if err := os.WriteFile(keyTmpPath, encryptedKey, 0600); err != nil {
+	if err := os.WriteFile(keyTmpPath, newKeyFileBytes, 0600); err != nil {
 		return fmt.Errorf("failed to write new verification key: %w", err)
 	}
 
@@ -229,7 +224,7 @@ func updatePasswordVerification(newPassword string) error {
 	_ = os.Remove(keyOldPath)
 
 	// Update session cache
-	if err := crypto.CachePassword(newPassword); err != nil {
+	if err := crypto.CacheKey(newKey); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to update session cache: %v\n", err)
 	}
 

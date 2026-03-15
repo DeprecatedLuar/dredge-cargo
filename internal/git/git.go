@@ -279,6 +279,35 @@ func pushToRemote(dir string) error {
 	return nil
 }
 
+// IsInitialized returns true if dredgeDir is a git repository.
+func IsInitialized(dredgeDir string) bool {
+	return isGitRepo(dredgeDir)
+}
+
+// HasUnpushedChanges returns true if dredgeDir is a git repo AND has either
+// uncommitted changes in items/ or commits not yet pushed to remote.
+// Silent on all errors (returns false).
+func HasUnpushedChanges(dredgeDir string) bool {
+	if !isGitRepo(dredgeDir) {
+		return false
+	}
+
+	// Check for uncommitted changes in items/ (tracked and untracked)
+	output, err := runGitCommand(dredgeDir, "status", "--short", "--", "items/")
+	if err == nil && strings.TrimSpace(output) != "" {
+		return true
+	}
+
+	// Check for commits ahead of remote
+	output, err = runGitCommand(dredgeDir, "rev-list", "@{upstream}..HEAD", "--count")
+	if err == nil {
+		count := strings.TrimSpace(output)
+		return count != "" && count != "0"
+	}
+
+	return false
+}
+
 // isGitRepo checks if directory is a git repository
 func isGitRepo(dir string) bool {
 	gitDir := filepath.Join(dir, ".git")

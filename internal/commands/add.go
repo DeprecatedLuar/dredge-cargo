@@ -13,9 +13,22 @@ import (
 
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
 	"github.com/DeprecatedLuar/dredge/internal/editor"
+	"github.com/DeprecatedLuar/dredge/internal/git"
 	"github.com/DeprecatedLuar/dredge/internal/storage"
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
+
+// warnIfUnpushed prints a dim warning if the git repo has uncommitted or unpushed changes.
+// Silent on all errors.
+func warnIfUnpushed() {
+	dredgeDir, err := storage.GetDredgeDir()
+	if err != nil {
+		return
+	}
+	if git.HasUnpushedChanges(dredgeDir) {
+		ui.PrintUnpushedWarning()
+	}
+}
 
 const (
 	idLength   = 3
@@ -205,13 +218,13 @@ func handleAddFile(args []string, filePath string) error {
 		}
 	}
 
-	// Get password with verification
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("failed to get password: %w", err)
+		return fmt.Errorf("failed to get key: %w", err)
 	}
 
-	if err := storage.CreateItem(id, item, password); err != nil {
+	if err := storage.CreateItem(id, item, key); err != nil {
 		return fmt.Errorf("failed to create item: %w", err)
 	}
 
@@ -230,13 +243,17 @@ func HandleAdd(args []string, _ string) error {
 
 	// If --file flag provided, handle binary item
 	if filePath != "" {
-		return handleAddFile(args, filePath)
+		if err := handleAddFile(args, filePath); err != nil {
+			return err
+		}
+		warnIfUnpushed()
+		return nil
 	}
 
-	// Get password with verification BEFORE opening editor (checks/creates .dredge-key)
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key BEFORE opening editor (checks/creates .dredge-key)
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("failed to get password: %w", err)
+		return fmt.Errorf("failed to get key: %w", err)
 	}
 
 	var item *storage.Item
@@ -276,10 +293,11 @@ func HandleAdd(args []string, _ string) error {
 		}
 	}
 
-	if err := storage.CreateItem(id, item, password); err != nil {
+	if err := storage.CreateItem(id, item, key); err != nil {
 		return fmt.Errorf("failed to create item: %w", err)
 	}
 
 	fmt.Println("+ " + ui.FormatItem(id, item.Title, item.Tags, "it#"))
+	warnIfUnpushed()
 	return nil
 }

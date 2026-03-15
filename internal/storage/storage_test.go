@@ -8,11 +8,11 @@ import (
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
 )
 
-const testPassword = "test-password-123"
+// testKey is a deterministic 32-byte key used across storage tests.
+var testKey = crypto.DeriveKey("test-password-123", []byte("16-byte-salt-val"))
 
-// setupTestEnv creates a temporary test directory and clears password cache
+// setupTestEnv creates a temporary test directory and clears session cache
 func setupTestEnv(t *testing.T) (cleanup func()) {
-	// Clear password cache first
 	_ = crypto.ClearSession()
 
 	tmpDir, err := os.MkdirTemp("", "dredge-test-*")
@@ -87,12 +87,12 @@ func TestCreateAndReadItem(t *testing.T) {
 	item := NewTextItem("Test Item", "secret content", []string{"test", "example"})
 
 	// Create item
-	if err := CreateItem("test-id", item, testPassword); err != nil {
+	if err := CreateItem("test-id", item, testKey); err != nil {
 		t.Fatalf("CreateItem() failed: %v", err)
 	}
 
 	// Read item
-	readItem, err := ReadItem("test-id", testPassword)
+	readItem, err := ReadItem("test-id", testKey)
 	if err != nil {
 		t.Fatalf("ReadItem() failed: %v", err)
 	}
@@ -116,12 +116,12 @@ func TestCreateItemDuplicate(t *testing.T) {
 	item := NewTextItem("Test", "content", nil)
 
 	// Create first time - should succeed
-	if err := CreateItem("dup-test", item, testPassword); err != nil {
+	if err := CreateItem("dup-test", item, testKey); err != nil {
 		t.Fatalf("First CreateItem() failed: %v", err)
 	}
 
 	// Create again - should fail
-	err := CreateItem("dup-test", item, testPassword)
+	err := CreateItem("dup-test", item, testKey)
 	if err == nil {
 		t.Error("CreateItem() should fail for duplicate ID")
 	}
@@ -133,7 +133,7 @@ func TestUpdateItem(t *testing.T) {
 
 	// Create initial item
 	item := NewTextItem("Original", "original content", []string{"tag1"})
-	if err := CreateItem("update-test", item, testPassword); err != nil {
+	if err := CreateItem("update-test", item, testKey); err != nil {
 		t.Fatalf("CreateItem() failed: %v", err)
 	}
 
@@ -142,12 +142,12 @@ func TestUpdateItem(t *testing.T) {
 	item.Content.Text = "updated content"
 	item.Tags = []string{"tag1", "tag2"}
 
-	if err := UpdateItem("update-test", item, testPassword); err != nil {
+	if err := UpdateItem("update-test", item, testKey); err != nil {
 		t.Fatalf("UpdateItem() failed: %v", err)
 	}
 
 	// Read and verify
-	readItem, err := ReadItem("update-test", testPassword)
+	readItem, err := ReadItem("update-test", testKey)
 	if err != nil {
 		t.Fatalf("ReadItem() failed: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestDeleteItem(t *testing.T) {
 
 	// Create item
 	item := NewTextItem("Delete Test", "content", nil)
-	if err := CreateItem("delete-test", item, testPassword); err != nil {
+	if err := CreateItem("delete-test", item, testKey); err != nil {
 		t.Fatalf("CreateItem() failed: %v", err)
 	}
 
@@ -179,9 +179,9 @@ func TestDeleteItem(t *testing.T) {
 	}
 
 	// Try to read - should fail
-	_, err := ReadItem("delete-test", testPassword)
+	_, err := ReadItem("delete-test", testKey)
 	if err == nil {
-		t.Error("ReadItem(, testPassword) should fail for deleted item")
+		t.Error("ReadItem(, testKey) should fail for deleted item")
 	}
 }
 
@@ -193,7 +193,7 @@ func TestListItemIDs(t *testing.T) {
 	ids := []string{"item1", "item2", "item3"}
 	for _, id := range ids {
 		item := NewTextItem("Title", "content", nil)
-		if err := CreateItem(id, item, testPassword); err != nil {
+		if err := CreateItem(id, item, testKey); err != nil {
 			t.Fatalf("CreateItem(%q) failed: %v", id, err)
 		}
 	}
@@ -236,7 +236,7 @@ func TestItemExists(t *testing.T) {
 
 	// Create item
 	item := NewTextItem("Test", "content", nil)
-	if err := CreateItem("exists-test", item, testPassword); err != nil {
+	if err := CreateItem("exists-test", item, testKey); err != nil {
 		t.Fatalf("CreateItem() failed: %v", err)
 	}
 

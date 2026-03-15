@@ -104,6 +104,11 @@ func TruncateString(s string, maxLen int) string {
 	return string(runes[:maxLen])
 }
 
+// PrintUnpushedWarning prints a dim hint reminding the user to push.
+func PrintUnpushedWarning() {
+	fmt.Println("\033[2m↑ unpushed changes  (dredge push)\033[0m")
+}
+
 // ============================================================================
 // Formatting Helpers
 // ============================================================================

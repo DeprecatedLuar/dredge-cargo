@@ -45,24 +45,30 @@ func HandleEdit(args []string) error {
 	}
 	id = ids[0]
 
-	// Get password
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("password error: %w", err)
+		return fmt.Errorf("key error: %w", err)
 	}
 
 	if tomlMode {
-		// Full TOML editing (including content)
-		return editRawTOML(id, password)
+		if err := editRawTOML(id, key); err != nil {
+			return err
+		}
+		warnIfUnpushed()
+		return nil
 	}
 
 	if metadataMode {
-		// Metadata editing: everything except [content] section
-		return editMetadata(id, password)
+		if err := editMetadata(id, key); err != nil {
+			return err
+		}
+		warnIfUnpushed()
+		return nil
 	}
 
 	// Template-based editing (default)
-	item, err := storage.ReadItem(id, password)
+	item, err := storage.ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("failed to read item [%s]: %w", id, err)
 	}
@@ -72,11 +78,12 @@ func HandleEdit(args []string) error {
 		return fmt.Errorf("failed to edit item: %w", err)
 	}
 
-	if err := storage.UpdateItem(id, updatedItem, password); err != nil {
+	if err := storage.UpdateItem(id, updatedItem, key); err != nil {
 		return fmt.Errorf("failed to update item: %w", err)
 	}
 
 	fmt.Printf("✓ [%s] %s\n", id, updatedItem.Title)
+	warnIfUnpushed()
 	return nil
 }
 
@@ -86,7 +93,7 @@ func isFlag(s string) bool {
 }
 
 // editRawTOML: edit full TOML including content
-func editRawTOML(id, password string) error {
+func editRawTOML(id string, key []byte) error {
 	// Get item file path
 	itemPath, err := storage.GetItemPath(id)
 	if err != nil {
@@ -103,7 +110,7 @@ func editRawTOML(id, password string) error {
 	}
 
 	// Decrypt to get raw TOML
-	tomlData, err := crypto.Decrypt(encryptedData, password)
+	tomlData, err := crypto.Decrypt(encryptedData, key)
 	if err != nil {
 		return fmt.Errorf("failed to decrypt: %w", err)
 	}
@@ -121,7 +128,7 @@ func editRawTOML(id, password string) error {
 	}
 
 	// Encrypt edited TOML
-	encryptedEdited, err := crypto.Encrypt([]byte(editedTOML), password)
+	encryptedEdited, err := crypto.Encrypt([]byte(editedTOML), key)
 	if err != nil {
 		return fmt.Errorf("failed to encrypt: %w", err)
 	}
@@ -136,9 +143,9 @@ func editRawTOML(id, password string) error {
 }
 
 // editMetadata: edit everything except [content] section
-func editMetadata(id, password string) error {
+func editMetadata(id string, key []byte) error {
 	// Read full item first
-	item, err := storage.ReadItem(id, password)
+	item, err := storage.ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("failed to read item [%s]: %w", id, err)
 	}
@@ -207,7 +214,7 @@ type = %q`,
 	item.Mode = parsedMode
 
 	// Save updated item
-	if err := storage.UpdateItem(id, item, password); err != nil {
+	if err := storage.UpdateItem(id, item, key); err != nil {
 		return fmt.Errorf("failed to update item: %w", err)
 	}
 

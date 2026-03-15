@@ -1,45 +1,51 @@
 package crypto
 
 import (
+	"bytes"
 	"os"
 	"testing"
 )
+
+// testSessionKey returns a valid 32-byte key for session tests.
+func testSessionKey() []byte {
+	return DeriveKey("test-password-123", []byte("16-byte-salt-val"))
+}
 
 func TestSessionCache_RoundTrip(t *testing.T) {
 	// Clear any existing session first
 	_ = ClearSession()
 
-	testPassword := "test-password-123"
+	testKey := testSessionKey()
 
 	// Check no active session initially
 	if HasActiveSession() {
 		t.Error("Should have no active session initially")
 	}
 
-	// Cache the password
-	err := CachePassword(testPassword)
+	// Cache the key
+	err := CacheKey(testKey)
 	if err != nil {
-		t.Fatalf("CachePassword failed: %v", err)
+		t.Fatalf("CacheKey failed: %v", err)
 	}
 
 	// Check active session now exists
 	if !HasActiveSession() {
-		t.Error("Should have active session after caching password")
+		t.Error("Should have active session after caching key")
 	}
 
-	// Retrieve the cached password
-	retrieved, err := GetCachedPassword()
+	// Retrieve the cached key
+	retrieved, err := GetCachedKey()
 	if err != nil {
-		t.Fatalf("GetCachedPassword failed: %v", err)
+		t.Fatalf("GetCachedKey failed: %v", err)
 	}
 
-	if retrieved == "" {
-		t.Fatal("GetCachedPassword returned empty password")
+	if len(retrieved) == 0 {
+		t.Fatal("GetCachedKey returned empty key")
 	}
 
-	// Verify retrieved password matches original
-	if retrieved != testPassword {
-		t.Errorf("Retrieved password doesn't match cached password.\nGot:  %q\nWant: %q", retrieved, testPassword)
+	// Verify retrieved key matches original
+	if !bytes.Equal(retrieved, testKey) {
+		t.Errorf("Retrieved key doesn't match cached key.\nGot:  %x\nWant: %x", retrieved, testKey)
 	}
 
 	// Clean up
@@ -53,39 +59,49 @@ func TestSessionCache_RoundTrip(t *testing.T) {
 		t.Error("Should have no active session after clearing")
 	}
 
-	retrieved, err = GetCachedPassword()
+	retrieved, err = GetCachedKey()
 	if err != nil {
-		t.Fatalf("GetCachedPassword after clear failed: %v", err)
+		t.Fatalf("GetCachedKey after clear failed: %v", err)
 	}
 
-	if retrieved != "" {
-		t.Error("GetCachedPassword should return empty string after session cleared")
+	if len(retrieved) != 0 {
+		t.Error("GetCachedKey should return nil after session cleared")
 	}
 }
 
-func TestCachePassword_Empty(t *testing.T) {
-	// Try to cache empty password
-	err := CachePassword("")
+func TestCacheKey_WrongSize(t *testing.T) {
+	// Try to cache key with wrong size
+	err := CacheKey([]byte("not-32-bytes"))
 	if err == nil {
-		t.Error("CachePassword should fail with empty password, but succeeded")
+		t.Error("CacheKey should fail with wrong-size key, but succeeded")
 	}
 
 	// Clean up in case it somehow got cached
 	_ = ClearSession()
 }
 
-func TestGetCachedPassword_NoCache(t *testing.T) {
+func TestCacheKey_Empty(t *testing.T) {
+	// Try to cache empty key
+	err := CacheKey([]byte{})
+	if err == nil {
+		t.Error("CacheKey should fail with empty key, but succeeded")
+	}
+
+	_ = ClearSession()
+}
+
+func TestGetCachedKey_NoCache(t *testing.T) {
 	// Clear any existing session
 	_ = ClearSession()
 
-	// Try to get cached password when none exists
-	password, err := GetCachedPassword()
+	// Try to get cached key when none exists
+	key, err := GetCachedKey()
 	if err != nil {
-		t.Fatalf("GetCachedPassword should not error when cache doesn't exist: %v", err)
+		t.Fatalf("GetCachedKey should not error when cache doesn't exist: %v", err)
 	}
 
-	if password != "" {
-		t.Error("GetCachedPassword should return empty string when no cache exists")
+	if len(key) != 0 {
+		t.Error("GetCachedKey should return nil when no cache exists")
 	}
 }
 
@@ -104,14 +120,9 @@ func TestGetPPID(t *testing.T) {
 		t.Error("GetPPID returned empty string")
 	}
 
-	// Verify it's a number
-	if len(ppid) == 0 {
-		t.Error("GetPPID should return a numeric string")
-	}
-
 	// Verify actual PPID matches
 	expected := os.Getppid()
-	if ppid != string(rune(expected)) && ppid == "" {
+	if ppid == "" && expected != 0 {
 		t.Logf("PPID: %s (expected: %d)", ppid, expected)
 	}
 }
@@ -120,16 +131,16 @@ func TestSessionCache_Permissions(t *testing.T) {
 	// Clear any existing session
 	_ = ClearSession()
 
-	// Create and cache a password
-	testPassword := "test-password"
-	err := CachePassword(testPassword)
+	// Create and cache a key
+	testKey := testSessionKey()
+	err := CacheKey(testKey)
 	if err != nil {
-		t.Fatalf("CachePassword failed: %v", err)
+		t.Fatalf("CacheKey failed: %v", err)
 	}
 
 	// Verify cache was created (permissions checked implicitly by OS)
 	if !HasActiveSession() {
-		t.Error("Cache should exist after CachePassword")
+		t.Error("Cache should exist after CacheKey")
 	}
 
 	// Clean up

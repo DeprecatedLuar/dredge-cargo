@@ -16,10 +16,10 @@ func HandleList(args []string) error {
 		return fmt.Errorf("usage: dredge list")
 	}
 
-	// Get password
-	password, err := crypto.GetPasswordWithVerification()
+	// Get master key (checks session cache, prompts if needed)
+	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
-		return fmt.Errorf("password error: %w", err)
+		return fmt.Errorf("key error: %w", err)
 	}
 
 	// Load all item IDs
@@ -41,7 +41,7 @@ func HandleList(args []string) error {
 
 	entries := make([]itemEntry, 0, len(ids))
 	for _, id := range ids {
-		item, err := storage.ReadItem(id, password)
+		item, err := storage.ReadItem(id, key)
 		if err != nil {
 			// Skip items that fail to decrypt
 			continue
