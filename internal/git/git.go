@@ -222,6 +222,14 @@ func addTrackedFiles(dir string) error {
 		return fmt.Errorf("failed to add items: %w", err)
 	}
 
+	// Add storage/ if it exists (binary blobs)
+	storageDir := filepath.Join(dir, "storage")
+	if _, err := os.Stat(storageDir); err == nil {
+		if _, err := runGitCommand(dir, "add", "storage/"); err != nil {
+			return fmt.Errorf("failed to add storage: %w", err)
+		}
+	}
+
 	// Add .dredge-key if it exists
 	keyFile := filepath.Join(dir, ".dredge-key")
 	if _, err := os.Stat(keyFile); err == nil {

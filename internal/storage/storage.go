@@ -25,6 +25,7 @@ const (
 	// Directory names
 	itemsDirName   = "items"
 	spawnedDirName = ".spawned"
+	storageDirName = "storage"
 
 	// File names
 	linksFileName     = "links.json"
@@ -83,8 +84,8 @@ func NewTextItem(title, content string, tags []string) *Item {
 	}
 }
 
-// NewBinaryItem creates a new binary item with base64-encoded content
-func NewBinaryItem(title, filename string, size int64, encodedContent string, tags []string) *Item {
+// NewBinaryItem creates a new binary item (content stored separately in storage/)
+func NewBinaryItem(title, filename string, size int64, mode uint32, tags []string) *Item {
 	now := time.Now()
 	return &Item{
 		Title:    title,
@@ -94,9 +95,7 @@ func NewBinaryItem(title, filename string, size int64, encodedContent string, ta
 		Modified: now,
 		Filename: filename,
 		Size:     &size,
-		Content: ItemContent{
-			Text: encodedContent,
-		},
+		Mode:     &mode,
 	}
 }
 
@@ -134,6 +133,80 @@ func GetSpawnedDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(dredgeDir, spawnedDirName), nil
+}
+
+// GetStorageDir returns the storage directory path (for binary blobs)
+func GetStorageDir() (string, error) {
+	dredgeDir, err := GetDredgeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dredgeDir, storageDirName), nil
+}
+
+// GetStoragePath returns the full path for a binary blob file
+func GetStoragePath(id string) (string, error) {
+	storageDir, err := GetStorageDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(storageDir, id), nil
+}
+
+// WriteStorageBlob encrypts and writes binary data to storage/id
+func WriteStorageBlob(id string, data []byte, key []byte) error {
+	storageDir, err := GetStorageDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(storageDir, dirPermissions); err != nil {
+		return fmt.Errorf("failed to create storage directory: %w", err)
+	}
+
+	encrypted, err := crypto.Encrypt(data, key)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt storage blob: %w", err)
+	}
+
+	blobPath := filepath.Join(storageDir, id)
+	if err := os.WriteFile(blobPath, encrypted, itemFilePermissions); err != nil {
+		return fmt.Errorf("failed to write storage blob: %w", err)
+	}
+	return nil
+}
+
+// ReadStorageBlob decrypts and returns binary data from storage/id
+func ReadStorageBlob(id string, key []byte) ([]byte, error) {
+	blobPath, err := GetStoragePath(id)
+	if err != nil {
+		return nil, err
+	}
+
+	encrypted, err := os.ReadFile(blobPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("storage blob for '%s' not found", id)
+		}
+		return nil, fmt.Errorf("failed to read storage blob: %w", err)
+	}
+
+	data, err := crypto.Decrypt(encrypted, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt storage blob: %w", err)
+	}
+	return data, nil
+}
+
+// DeleteStorageBlob removes a binary blob from storage/; silent if missing
+func DeleteStorageBlob(id string) error {
+	blobPath, err := GetStoragePath(id)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete storage blob: %w", err)
+	}
+	return nil
 }
 
 // GetLinksFilePath returns the links.json file path
@@ -179,6 +252,14 @@ func EnsureDirectories() error {
 	}
 	if err := os.MkdirAll(spawnedDir, dirPermissions); err != nil {
 		return fmt.Errorf("failed to create spawned directory: %w", err)
+	}
+
+	storageDir, err := GetStorageDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(storageDir, dirPermissions); err != nil {
+		return fmt.Errorf("failed to create storage directory: %w", err)
 	}
 
 	gitignorePath := filepath.Join(dredgeDir, gitignoreFileName)
@@ -260,6 +341,11 @@ func ReadItem(id string, key []byte) (*Item, error) {
 		return nil, fmt.Errorf("failed to decode TOML: %w", err)
 	}
 
+	// Binary content lives in storage/; don't return it via ReadItem
+	if item.Type == TypeBinary {
+		item.Content.Text = ""
+	}
+
 	return &item, nil
 }
 
@@ -321,6 +407,9 @@ func DeleteItem(id string) error {
 	if err := os.Remove(itemPath); err != nil {
 		return fmt.Errorf("failed to delete item: %w", err)
 	}
+
+	// Also remove storage blob if present (silent if missing)
+	_ = DeleteStorageBlob(id)
 
 	return nil
 }

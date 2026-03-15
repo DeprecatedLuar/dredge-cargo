@@ -13,10 +13,12 @@ import (
 )
 
 const (
-	tmpDirName = "items.tmp"
-	oldDirName = "items.old"
-	keyTmpName = ".dredge-key.tmp"
-	keyOldName = ".dredge-key.old"
+	tmpDirName        = "items.tmp"
+	oldDirName        = "items.old"
+	storageTmpDirName = "storage.tmp"
+	storageOldDirName = "storage.old"
+	keyTmpName        = ".dredge-key.tmp"
+	keyOldName        = ".dredge-key.old"
 )
 
 // HandlePasswd handles password change command
@@ -137,10 +139,60 @@ func HandlePasswd() error {
 		return fmt.Errorf("re-encryption failed: expected %d items, got %d", len(itemIDs), len(tmpEntries))
 	}
 
-	// 11. Write new .dredge-key.tmp
+	// 11. Re-encrypt storage/ blobs (binary items)
+	storageDir, err := storage.GetStorageDir()
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("failed to get storage directory: %w", err)
+	}
+
+	storageTmpDir := filepath.Join(dredgeDir, storageTmpDirName)
+	storageOldDir := filepath.Join(dredgeDir, storageOldDirName)
+	_ = os.RemoveAll(storageTmpDir)
+	_ = os.RemoveAll(storageOldDir)
+
+	storageEntries, err := os.ReadDir(storageDir)
+	if err != nil && !os.IsNotExist(err) {
+		_ = os.RemoveAll(tmpDir)
+		return fmt.Errorf("failed to read storage directory: %w", err)
+	}
+
+	if len(storageEntries) > 0 {
+		if err := os.MkdirAll(storageTmpDir, 0700); err != nil {
+			_ = os.RemoveAll(tmpDir)
+			return fmt.Errorf("failed to create storage.tmp directory: %w", err)
+		}
+
+		for _, entry := range storageEntries {
+			if entry.IsDir() {
+				continue
+			}
+			id := entry.Name()
+			blobData, err := storage.ReadStorageBlob(id, currentKey)
+			if err != nil {
+				_ = os.RemoveAll(tmpDir)
+				_ = os.RemoveAll(storageTmpDir)
+				return fmt.Errorf("failed to decrypt storage blob %s: %w", id, err)
+			}
+			encrypted, err := crypto.Encrypt(blobData, newKey)
+			if err != nil {
+				_ = os.RemoveAll(tmpDir)
+				_ = os.RemoveAll(storageTmpDir)
+				return fmt.Errorf("failed to re-encrypt storage blob %s: %w", id, err)
+			}
+			if err := os.WriteFile(filepath.Join(storageTmpDir, id), encrypted, 0600); err != nil {
+				_ = os.RemoveAll(tmpDir)
+				_ = os.RemoveAll(storageTmpDir)
+				return fmt.Errorf("failed to write storage blob %s: %w", id, err)
+			}
+		}
+	}
+
+	// 12. Write new .dredge-key.tmp
 	keyPath, err := crypto.GetVerifyFilePath()
 	if err != nil {
 		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(storageTmpDir)
 		return fmt.Errorf("failed to get key file path: %w", err)
 	}
 
@@ -149,13 +201,15 @@ func HandlePasswd() error {
 
 	if err := os.WriteFile(keyTmpPath, newKeyFileBytes, 0600); err != nil {
 		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(storageTmpDir)
 		return fmt.Errorf("failed to write new verification key: %w", err)
 	}
 
-	// 12. ATOMIC SWAP (the critical moment)
+	// 13. ATOMIC SWAP (the critical moment)
 	// Rename original items/ to items.old
 	if err := os.Rename(itemsDir, oldDir); err != nil {
 		_ = os.RemoveAll(tmpDir)
+		_ = os.RemoveAll(storageTmpDir)
 		_ = os.Remove(keyTmpPath)
 		return fmt.Errorf("failed to backup items directory: %w", err)
 	}
@@ -164,8 +218,22 @@ func HandlePasswd() error {
 	if err := os.Rename(tmpDir, itemsDir); err != nil {
 		// Critical failure - try to restore
 		_ = os.Rename(oldDir, itemsDir)
+		_ = os.RemoveAll(storageTmpDir)
 		_ = os.Remove(keyTmpPath)
 		return fmt.Errorf("failed to activate new items directory (restored backup): %w", err)
+	}
+
+	// Swap storage/ if we have a tmp (best-effort; blobs are still readable with old key if this fails)
+	if len(storageEntries) > 0 {
+		if err := os.Rename(storageDir, storageOldDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to backup storage directory: %v\n", err)
+		} else if err := os.Rename(storageTmpDir, storageDir); err != nil {
+			// Try to restore storage
+			_ = os.Rename(storageOldDir, storageDir)
+			fmt.Fprintf(os.Stderr, "Warning: failed to activate new storage directory: %v\n", err)
+		} else {
+			_ = os.RemoveAll(storageOldDir)
+		}
 	}
 
 	// Rename .dredge-key to .dredge-key.old
@@ -181,7 +249,7 @@ func HandlePasswd() error {
 		return fmt.Errorf("failed to activate new key file (restored backup): %w", err)
 	}
 
-	// 13. Success! Delete backups
+	// 14. Success! Delete backups
 	_ = os.RemoveAll(oldDir)
 	_ = os.Remove(keyOldPath)
 

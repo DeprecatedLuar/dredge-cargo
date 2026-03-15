@@ -180,21 +180,8 @@ func handleAddFile(args []string, filePath string) error {
 			},
 		}
 	} else {
-		// Binary file: store as TypeBinary with base64-encoded content
-		encoded := base64.StdEncoding.EncodeToString(fileBytes)
-		item = &storage.Item{
-			Title:    title,
-			Tags:     tags,
-			Type:     storage.TypeBinary,
-			Created:  time.Now(),
-			Modified: time.Now(),
-			Filename: filename,
-			Size:     &fileSize,
-			Mode:     &fileMode,
-			Content: storage.ItemContent{
-				Text: encoded,
-			},
-		}
+		// Binary file: metadata only in items/; blob goes to storage/
+		item = storage.NewBinaryItem(title, filename, fileSize, fileMode, tags)
 	}
 
 	// Generate unique ID
@@ -226,6 +213,15 @@ func handleAddFile(args []string, filePath string) error {
 
 	if err := storage.CreateItem(id, item, key); err != nil {
 		return fmt.Errorf("failed to create item: %w", err)
+	}
+
+	// For binary items, write the encrypted blob to storage/
+	if item.Type == storage.TypeBinary {
+		if err := storage.WriteStorageBlob(id, fileBytes, key); err != nil {
+			// Roll back the metadata item on failure
+			_ = storage.DeleteItem(id)
+			return fmt.Errorf("failed to write binary blob: %w", err)
+		}
 	}
 
 	// Show appropriate output based on type

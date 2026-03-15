@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -75,12 +74,12 @@ func HandleExport(args []string) error {
 	// Handle content based on item type
 	var contentToWrite []byte
 	if item.Type == storage.TypeBinary {
-		// Binary item: decode base64
-		decodedContent, err := base64.StdEncoding.DecodeString(item.Content.Text)
+		// Binary item: read from storage/ directory
+		blobData, err := storage.ReadStorageBlob(id, key)
 		if err != nil {
-			return fmt.Errorf("failed to decode binary content: %w", err)
+			return fmt.Errorf("failed to read binary blob: %w", err)
 		}
-		contentToWrite = decodedContent
+		contentToWrite = blobData
 	} else {
 		// Text item: write content directly
 		contentToWrite = []byte(item.Content.Text)

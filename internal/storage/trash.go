@@ -14,8 +14,9 @@ const (
 	trashInfoDirName  = "info"
 
 	// Trash file naming
-	trashItemPrefix = "dredge-"
-	trashInfoExt    = ".trashinfo"
+	trashItemPrefix        = "dredge-"
+	trashStorageBlobPrefix = "dredge-storage-"
+	trashInfoExt           = ".trashinfo"
 )
 
 // GetTrashDir returns the system trash directory path
@@ -65,6 +66,15 @@ func GetTrashInfoPath(id string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(trashInfoDir, trashItemPrefix+id+trashInfoExt), nil
+}
+
+// GetTrashStorageBlobPath returns the trash path for a binary storage blob
+func GetTrashStorageBlobPath(id string) (string, error) {
+	trashFilesDir, err := GetTrashFilesDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(trashFilesDir, trashStorageBlobPrefix+id), nil
 }
 
 // EnsureTrashDirectories creates the trash directory structure if it doesn't exist
@@ -131,6 +141,17 @@ func MoveToTrash(id string) error {
 		return fmt.Errorf("failed to create .trashinfo file: %w", err)
 	}
 
+	// Move storage blob to trash if it exists (binary items)
+	blobPath, err := GetStoragePath(id)
+	if err == nil {
+		if _, err := os.Stat(blobPath); err == nil {
+			trashBlobPath, err := GetTrashStorageBlobPath(id)
+			if err == nil {
+				os.Rename(blobPath, trashBlobPath) // Best-effort; non-fatal
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -171,6 +192,17 @@ func RestoreFromTrash(id string) error {
 	if err := os.Remove(trashInfoPath); err != nil {
 		// Non-fatal, item is already restored
 		fmt.Fprintf(os.Stderr, "Warning: failed to delete .trashinfo file: %v\n", err)
+	}
+
+	// Restore storage blob if it exists in trash (binary items)
+	trashBlobPath, err := GetTrashStorageBlobPath(id)
+	if err == nil {
+		if _, err := os.Stat(trashBlobPath); err == nil {
+			blobPath, err := GetStoragePath(id)
+			if err == nil {
+				os.Rename(trashBlobPath, blobPath) // Best-effort; non-fatal
+			}
+		}
 	}
 
 	return nil

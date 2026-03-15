@@ -251,7 +251,7 @@ func TestItemExists(t *testing.T) {
 }
 
 func TestNewBinaryItem(t *testing.T) {
-	item := NewBinaryItem("Service Key", "key.json", 2048, "base64data", []string{"api", "gcp"})
+	item := NewBinaryItem("Service Key", "key.json", 2048, 0644, []string{"api", "gcp"})
 
 	if item.Type != TypeBinary {
 		t.Errorf("Type = %q, want %q", item.Type, TypeBinary)
@@ -266,7 +266,8 @@ func TestNewBinaryItem(t *testing.T) {
 			t.Errorf("Size = %d, want 2048", *item.Size)
 		}
 	}
-	if item.Content.Text != "base64data" {
-		t.Errorf("Content = %q, want 'base64data'", item.Content.Text)
+	// Content lives in storage/; item struct has no content
+	if item.Content.Text != "" {
+		t.Errorf("Content = %q, want empty (binary content stored in storage/)", item.Content.Text)
 	}
 }

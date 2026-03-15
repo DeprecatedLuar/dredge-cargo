@@ -18,6 +18,7 @@ var (
 	debugMode  bool
 	luckMode   bool
 	searchMode bool
+	devMode    bool
 )
 
 func main() {
@@ -46,6 +47,11 @@ func main() {
 				Aliases:     []string{"s"},
 				Usage:       "Force show search list",
 				Destination: &searchMode,
+			},
+			&cli.BoolFlag{
+				Name:        "dev",
+				Usage:       "Skip git repo check (for local testing without a remote)",
+				Destination: &devMode,
 			},
 		},
 		Commands: []*cli.Command{
@@ -223,7 +229,7 @@ func main() {
 
 			// Ensure a git repo is connected (skip for init/help — those don't need it)
 			sub := c.Args().First()
-			if sub != "init" && sub != "help" && sub != "h" {
+			if !devMode && sub != "init" && sub != "help" && sub != "h" {
 				if err := commands.EnsureInitialized(); err != nil {
 					return err
 				}

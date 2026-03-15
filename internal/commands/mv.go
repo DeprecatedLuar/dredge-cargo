@@ -78,6 +78,17 @@ func HandleMove(args []string) error {
 		return fmt.Errorf("failed to rename item file: %w", err)
 	}
 
+	// Rename storage blob if present (binary items)
+	oldBlobPath, err := storage.GetStoragePath(oldID)
+	if err == nil {
+		newBlobPath, err := storage.GetStoragePath(newID)
+		if err == nil {
+			if _, err := os.Stat(oldBlobPath); err == nil {
+				os.Rename(oldBlobPath, newBlobPath) // Best-effort; non-fatal
+			}
+		}
+	}
+
 	// If item was linked, re-link with new ID to same target
 	if linkTarget != "" {
 		if err := storage.Link(newID, linkTarget, true); err != nil {
