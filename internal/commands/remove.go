@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
+	"github.com/DeprecatedLuar/dredge/internal/session"
 	"github.com/DeprecatedLuar/dredge/internal/storage"
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
@@ -65,7 +66,7 @@ func HandleRemove(args []string) error {
 
 	// Cache all deleted IDs for undo
 	if len(deletedIDs) > 0 {
-		if err := storage.CacheDeleted(deletedIDs); err != nil {
+		if err := session.CacheDeleted(deletedIDs); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to cache deleted IDs: %v\n", err)
 		}
 	}

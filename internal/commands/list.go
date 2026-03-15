@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
+	"github.com/DeprecatedLuar/dredge/internal/session"
 	"github.com/DeprecatedLuar/dredge/internal/storage"
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
@@ -71,7 +72,7 @@ func HandleList(args []string) error {
 	for i, entry := range entries {
 		cachedIDs[i] = entry.id
 	}
-	storage.CacheResults(cachedIDs) // Ignore errors (non-fatal)
+	session.CacheResults(cachedIDs) // Ignore errors (non-fatal)
 
 	return nil
 }

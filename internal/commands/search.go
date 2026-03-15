@@ -7,6 +7,7 @@ import (
 
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
 	"github.com/DeprecatedLuar/dredge/internal/search"
+	"github.com/DeprecatedLuar/dredge/internal/session"
 	"github.com/DeprecatedLuar/dredge/internal/storage"
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
@@ -103,7 +104,7 @@ func HandleSearch(query string, luck bool, forceSearch bool) error {
 	for i, r := range results {
 		resultIDs[i] = r.ID
 	}
-	storage.CacheResults(resultIDs) // Ignore errors (non-fatal)
+	session.CacheResults(resultIDs) // Ignore errors (non-fatal)
 
 	return nil
 }
@@ -118,7 +119,7 @@ func ResolveArgs(args []string) ([]string, error) {
 		// Limit to 1-2 digits to avoid IDs like "123xyz" or long numbers
 		if num, err := strconv.Atoi(arg); err == nil && num > 0 && len(arg) <= 2 {
 			// It's a number, resolve from cache
-			id, cacheErr := storage.GetCachedResult(num)
+			id, cacheErr := session.GetCachedResult(num)
 			if cacheErr != nil {
 				return nil, fmt.Errorf("arg %q: %w", arg, cacheErr)
 			}

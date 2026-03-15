@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
+	"github.com/DeprecatedLuar/dredge/internal/session"
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
 
@@ -179,19 +180,13 @@ func DeriveKey(password string, salt []byte) []byte {
 
 // Session cache configuration
 const (
-	tempDirBase      = "/tmp/dredge"
 	sessionCacheFile = ".session" // Hidden file for security
 )
-
-// getSessionDir returns the session-specific directory path
-func getSessionDir() string {
-	return filepath.Join(tempDirBase, fmt.Sprintf("%d", os.Getppid()))
-}
 
 // GetCachedPassword retrieves the cached password from session cache.
 // Returns empty string if cache doesn't exist.
 func GetCachedPassword() (string, error) {
-	cachePath := filepath.Join(getSessionDir(), sessionCacheFile)
+	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
@@ -210,13 +205,11 @@ func CachePassword(password string) error {
 		return fmt.Errorf("password cannot be empty")
 	}
 
-	// Ensure session directory exists
-	sessionDir := getSessionDir()
-	if err := os.MkdirAll(sessionDir, 0700); err != nil {
+	if err := os.MkdirAll(session.Dir(), 0700); err != nil {
 		return fmt.Errorf("failed to create session directory: %w", err)
 	}
 
-	cachePath := filepath.Join(sessionDir, sessionCacheFile)
+	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
 	if err := os.WriteFile(cachePath, []byte(password), 0600); err != nil {
 		return fmt.Errorf("failed to cache password: %w", err)
 	}
@@ -226,7 +219,7 @@ func CachePassword(password string) error {
 
 // ClearSession removes the session cache file.
 func ClearSession() error {
-	cachePath := filepath.Join(getSessionDir(), sessionCacheFile)
+	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
 	err := os.Remove(cachePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to clear session cache: %w", err)

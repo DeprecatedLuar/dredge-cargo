@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
+	"github.com/DeprecatedLuar/dredge/internal/session"
 	"github.com/DeprecatedLuar/dredge/internal/storage"
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
@@ -23,7 +24,7 @@ func HandleUndo(args []string) error {
 	}
 
 	// Get last deleted IDs from cache
-	ids, err := storage.GetDeleted(count)
+	ids, err := session.GetDeleted(count)
 	if err != nil {
 		return fmt.Errorf("cannot undo: %w", err)
 	}
@@ -74,7 +75,7 @@ func HandleUndo(args []string) error {
 			}
 		}
 		if len(remainingIDs) > 0 {
-			storage.CacheDeleted(remainingIDs)
+			session.CacheDeleted(remainingIDs)
 		}
 	}
 

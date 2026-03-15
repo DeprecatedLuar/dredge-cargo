@@ -11,7 +11,7 @@ import (
 	"github.com/DeprecatedLuar/dredge/internal/commands"
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
 	"github.com/DeprecatedLuar/dredge/internal/selfheal"
-	"github.com/DeprecatedLuar/dredge/internal/storage"
+	"github.com/DeprecatedLuar/dredge/internal/session"
 )
 
 var (
@@ -224,7 +224,7 @@ func main() {
 			// Try as numbered result first (if single numeric arg)
 			if len(args) == 1 {
 				if num, err := strconv.Atoi(firstArg); err == nil && num > 0 {
-					if id, cacheErr := storage.GetCachedResult(num); cacheErr == nil {
+					if id, cacheErr := session.GetCachedResult(num); cacheErr == nil {
 						return commands.HandleView([]string{id})
 					}
 					// If cache miss, fall through to try as ID/search

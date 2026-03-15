@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/DeprecatedLuar/dredge/internal/session"
 	"github.com/DeprecatedLuar/dredge/internal/storage"
 )
 
@@ -16,12 +16,6 @@ const (
 	tempFilePrefix = "dredge-"
 	tempFileSuffix = ".txt"
 )
-
-// getSessionDir returns the session-specific temp directory
-func getSessionDir() string {
-	ppid := os.Getppid()
-	return filepath.Join("/tmp", "dredge", fmt.Sprintf("%d", ppid))
-}
 
 // OpenForNewItem opens editor with initial title/tags, returns new Item
 // If title is empty, opens with blank template for user to fill in
@@ -221,13 +215,12 @@ func openEditor(initialContent string) (string, error) {
 	}
 
 	// Ensure session directory exists
-	sessionDir := getSessionDir()
-	if err := os.MkdirAll(sessionDir, 0700); err != nil {
+	if err := os.MkdirAll(session.Dir(), 0700); err != nil {
 		return "", fmt.Errorf("failed to create session directory: %w", err)
 	}
 
 	// Create temp file
-	tmpFile, err := os.CreateTemp(sessionDir, tempFilePrefix+"*"+tempFileSuffix)
+	tmpFile, err := os.CreateTemp(session.Dir(), tempFilePrefix+"*"+tempFileSuffix)
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}
