@@ -26,32 +26,32 @@ func TestSearch_SimpleQuery(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		query         string
-		wantCount     int
-		wantFirstID   string
+		name           string
+		query          string
+		wantCount      int
+		wantFirstID    string
 		wantFirstScore int
 	}{
 		{
-			name:          "single term in title",
-			query:         "proton",
-			wantCount:     1,
-			wantFirstID:   "proton-email",
-			wantFirstScore: 101, // title(100) + content(1) - "proton" in user@proton.me
+			name:           "single term in title",
+			query:          "proton",
+			wantCount:      1,
+			wantFirstID:    "proton-email",
+			wantFirstScore: 3636, // (title=100 + content=1) * 6²=36
 		},
 		{
-			name:          "multi-word AND logic",
-			query:         "email proton",
-			wantCount:     1,
-			wantFirstID:   "proton-email",
-			wantFirstScore: 111, // title(100) + tag(10) + content(1)
+			name:           "multi-word threshold logic",
+			query:          "email proton",
+			wantCount:      1,
+			wantFirstID:    "proton-email",
+			wantFirstScore: 3886, // email: tag=10*25=250; proton: title=100*36+content=1*36=3636; total=3886
 		},
 		{
-			name:          "tag match",
-			query:         "api",
-			wantCount:     1,
-			wantFirstID:   "gmail-api",
-			wantFirstScore: 110, // title(100) + tag(10)
+			name:           "tag match",
+			query:          "api",
+			wantCount:      1,
+			wantFirstID:    "gmail-api",
+			wantFirstScore: 990, // (title=100 + tag=10) * 3²=9
 		},
 		{
 			name:      "no results",
@@ -59,18 +59,18 @@ func TestSearch_SimpleQuery(t *testing.T) {
 			wantCount: 0,
 		},
 		{
-			name:          "content match",
-			query:         "rsa",
-			wantCount:     1,
-			wantFirstID:   "ssh-key",
-			wantFirstScore: 1, // content match only
+			name:           "content match",
+			query:          "rsa",
+			wantCount:      1,
+			wantFirstID:    "ssh-key",
+			wantFirstScore: 9, // content=1 * 3²=9
 		},
 		{
-			name:          "case insensitive",
-			query:         "PROTON",
-			wantCount:     1,
-			wantFirstID:   "proton-email",
-			wantFirstScore: 101, // title(100) + content(1)
+			name:           "case insensitive",
+			query:          "PROTON",
+			wantCount:      1,
+			wantFirstID:    "proton-email",
+			wantFirstScore: 3636, // same as "proton"
 		},
 		{
 			name:      "empty query",
@@ -141,15 +141,15 @@ func TestSearch_Ranking(t *testing.T) {
 		t.Errorf("Expected content-match third, got %s", results[2].ID)
 	}
 
-	// Verify scores
-	if results[0].Score != 100 {
-		t.Errorf("Title match score = %d, want 100", results[0].Score)
+	// Verify scores: base * termLen² where "email" len=5, weight=25
+	if results[0].Score != 2500 {
+		t.Errorf("Title match score = %d, want 2500", results[0].Score)
 	}
-	if results[1].Score != 10 {
-		t.Errorf("Tag match score = %d, want 10", results[1].Score)
+	if results[1].Score != 250 {
+		t.Errorf("Tag match score = %d, want 250", results[1].Score)
 	}
-	if results[2].Score != 1 {
-		t.Errorf("Content match score = %d, want 1", results[2].Score)
+	if results[2].Score != 25 {
+		t.Errorf("Content match score = %d, want 25", results[2].Score)
 	}
 }
 
@@ -162,14 +162,14 @@ func TestSearch_MultipleTagMatches(t *testing.T) {
 		),
 	}
 
-	// Query with term that matches one tag
+	// Query with term that matches one tag: "email" len=5, weight=25, tag=10*25=250
 	results := Search(items, "email")
-	if len(results) != 1 || results[0].Score != 10 {
-		t.Errorf("Expected 1 result with score 10, got %d results with score %d", len(results), results[0].Score)
+	if len(results) != 1 || results[0].Score != 250 {
+		t.Errorf("Expected 1 result with score 250, got %d results with score %d", len(results), results[0].Score)
 	}
 }
 
-func TestSearch_ANDLogic(t *testing.T) {
+func TestSearch_ThresholdLogic(t *testing.T) {
 	items := map[string]*storage.Item{
 		"item1": storage.NewTextItem(
 			"Email Settings",
@@ -183,16 +183,23 @@ func TestSearch_ANDLogic(t *testing.T) {
 		),
 	}
 
-	// Both terms must match
+	// "email proton": email=weight25, proton=weight36, total=61
+	// item1 matches both terms (100%), item2 matches only "proton" (36/61=59% > 50% threshold)
+	// Threshold logic: a single heavy term can carry the match
 	results := Search(items, "email proton")
 
-	if len(results) != 1 {
-		t.Errorf("Expected 1 result (AND logic), got %d", len(results))
+	if len(results) != 2 {
+		t.Errorf("Expected 2 results (threshold logic), got %d", len(results))
 		return
 	}
 
-	if results[0].ID != "item1" {
-		t.Errorf("Expected item1, got %s", results[0].ID)
+	// item2 scores higher: proton in title = 100*36 = 3600
+	// item1: email tag+title = 2750, proton in content = 36 → 2786
+	if results[0].ID != "item2" {
+		t.Errorf("Expected item2 first (higher score), got %s", results[0].ID)
+	}
+	if results[1].ID != "item1" {
+		t.Errorf("Expected item1 second, got %s", results[1].ID)
 	}
 }
 
