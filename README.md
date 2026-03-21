@@ -54,12 +54,29 @@ That's it. You don't have to organize, that creates mental overhead over time re
 
 ## Install
 
+**If you have Go:**
+
+```bash
+go install github.com/DeprecatedLuar/dredge/cmd/dredge@latest
+```
+
+Make sure `$GOPATH/bin` (usually `~/go/bin`) is in your `PATH`.
+
+<details>
+<summary>No Go? Use the install script</summary>
+
+<br>
+
+Downloads a pre-built binary — no Go required. The script delegates to [the-satellite](https://github.com/DeprecatedLuar/the-satellite), a reusable installer library I use across projects for OS/arch detection and binary downloads.
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/DeprecatedLuar/dredge/main/install.sh | bash
 ```
 
+</details>
+
 <details>
-<summary>Build from source (requires Go 1.21+)</summary>
+<summary>Build from source</summary>
 
 <br>
 
@@ -67,7 +84,7 @@ curl -sSL https://raw.githubusercontent.com/DeprecatedLuar/dredge/main/install.s
 git clone https://github.com/DeprecatedLuar/dredge
 cd dredge
 go build -o dredge ./cmd/dredge
-mv dredge /usr/local/bin/
+mv dredge ~/.local/bin/
 ```
 
 </details>
