@@ -1,5 +1,7 @@
 <div align="center">
-  <img src="other/assets/dredge-banner-2.webp" width="800"/>
+<img src="other/assets/dredge-doge-vs-cheems-banner.webp" alt="dredge-doge-vs-cheems"/>
+
+  
 </div>
 
 <br>
@@ -20,9 +22,6 @@ This is NOT a password manager. NOT a notes app. NOT a deep-sea benthic abberant
   </a>
 </div>
 
----
-
-<img src="other/assets/dredge-doge-vs-cheems-banner.webp" alt="dredge-doge-vs-cheems"/>
 
 ---
 
@@ -65,7 +64,12 @@ cd dredge
 go build -o dredge ./cmd/dredge
 mv dredge /usr/local/bin/
 ```
+
 </details>
+
+<div align="center">
+<img src="other/assets/dredge-banner-2.webp" width="800"/>
+</div>
 
 Git sync requires the [gh CLI](https://cli.github.com/) authenticated.
 
@@ -127,7 +131,7 @@ dredge sync          # pull + push
 
 ## The cool features you've never seen before
 
-<img src="other/assets/experience-tranquility.jpg" alt="Actually..." align="right" width="200"/>
+<img src="other/assets/dredge-logo.webp" alt="Actually..." align="right" width="200"/>
 
 - **Encrypted storage** — AES-256-GCM + Argon2id, everything encrypted at rest
 - **Instant search** — fuzzy matching, typo-tolerant, I wanted something to read my mind when searching
