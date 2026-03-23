@@ -5,7 +5,7 @@
 
 <div align="center">
 
-[Install](#install) • [Quick Start](#quick-start) • [Features](#the-cool-features-youve-never-seen-before) • [The Link Command](#the-link-command) • [Commands](#all-commands) • [How It Works](#how-it-works) • [Security](#security) • [Why](#why)
+[Install](#install) • [Quick Start](#quick-start) • [Features](#features) • [The Link Command](#link) • [Commands](#commands) • [How It Works](#how-it-works) • [Security](#security) • [Why](#why)
 
 </div>
 
@@ -51,7 +51,7 @@ go install github.com/DeprecatedLuar/dredge/cmd/dredge@latest
 
 ---
 
-<h2><img height="44" src="other/assets/fish/dredge-blackmouth.webp"/> The cool features you've never seen before</h2>
+<h2 id="features"><img height="44" src="other/assets/fish/dredge-blackmouth.webp"/> The cool features you've never seen before</h2>
 
 - **Encrypted storage** — Clone the repo and get absolute cryptic gibberish. You can't even tell what's in the repo without the password. (I used AES-256-GCM + Argon2id)
 - **Instant search** — I made a custom fuzzy search algorithm because I'm lazy and want the right entry among 300 others in millisecond without having to think about it.
@@ -71,7 +71,7 @@ Even a _legal_ copy of Chainsaw Man chapter 2 in Japanese. (I may or not have th
 
 ---
 
-<h2><img height="32" src="other/assets/fish/dredge-crab.webp"/> Install</h2>
+<h2 id="install"><img height="32" src="other/assets/fish/dredge-crab.webp"/> Install</h2>
 
 **If you have Go:**
 
@@ -111,7 +111,7 @@ mv dredge ~/.local/bin/
 
 ---
 
-<h2><img height="32" src="other/assets/fish/dredge-perch.webp"/> Quick start</h2>
+<h2 id="quick-start"><img height="32" src="other/assets/fish/dredge-perch.webp"/> Quick start</h2>
 
 ```bash
 # Initialize with an existing git remote
@@ -164,7 +164,7 @@ dredge sync          # pull + push
 
 ---
 
-<h2><img height="32" src="other/assets/fish/dredge-octopus-glowing.webp"/> How it works</h2>
+<h2 id="how-it-works"><img height="32" src="other/assets/fish/dredge-octopus-glowing.webp"/> How it works</h2>
 
 > *"I can't imagine what's down there in the deep."* — The Lighthouse Keeper
 
@@ -233,7 +233,7 @@ All the following dredge commands in the SAME terminal use the cached key. Which
 
 ---
 
-<h2><img height="56" src="other/assets/fish/dredge-shark-whaler.webp"/> Security</h2>
+<h2 id="security"><img height="56" src="other/assets/fish/dredge-shark-whaler.webp"/> Security</h2>
 
 > *"Better to come back with a small catch than to not come back at all."* — The Fishmonger
 
@@ -267,7 +267,7 @@ The spawned file is the only persistent plaintext on disk, and it only exists be
 <img src="other/assets/fish/dredge-eel.webp" width="700"/>
 </div>
 
-<h2><img height="32" src="other/assets/fish/dredge-squid.webp"/> The link command</h2>
+<h2 id="link"><img height="32" src="other/assets/fish/dredge-squid.webp"/> The link command</h2>
 
 Link any stored item to a path on your filesystem:
 
@@ -289,7 +289,7 @@ This is _actually_ the reason I built dredge. My SSH config is identical on ever
 
 ---
 
-<h2><img height="32" src="other/assets/fish/dredge-mackerel.webp"/> All commands</h2>
+<h2 id="commands"><img height="32" src="other/assets/fish/dredge-mackerel.webp"/> All commands</h2>
 
 <div align="left">
 
@@ -347,7 +347,7 @@ dredge init /srv/git/dredge-vault.git
 
 ---
 
-<h2><img height="32" src="other/assets/fish/dredge-jellyfish-aurora.webp"/> Why</h2>
+<h2 id="why"><img height="32" src="other/assets/fish/dredge-jellyfish-aurora.webp"/> Why</h2>
 
 <img src="other/assets/dredge-logo.webp" alt="dredge logo" align="right" width="200"/>
 
