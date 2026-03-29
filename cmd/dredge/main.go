@@ -236,15 +236,30 @@ func main() {
 
 			// Determine the subcommand (empty string means no args → show help)
 			sub := c.Args().First()
-			isHelpCommand := sub == "" || sub == "help" || sub == "h"
 
-			// Run self-healing on new session (skip for help — no vault access needed)
-			if isNewSession && !isHelpCommand {
+			// Commands that don't need vault access (no selfheal, no git check)
+			passiveCommands := []string{"", "help", "h", "update", "up"}
+			// Commands that additionally skip the git repo check
+			noGitCommands := []string{"init"}
+
+			contains := func(list []string, s string) bool {
+				for _, v := range list {
+					if v == s {
+						return true
+					}
+				}
+				return false
+			}
+
+			isPassiveCommand := contains(passiveCommands, sub)
+
+			// Run self-healing on new session (skip for passive commands — no vault access needed)
+			if isNewSession && !isPassiveCommand {
 				selfheal.Run()
 			}
 
-			// Ensure a git repo is connected (skip for init/help — those don't need it)
-			if !devMode && !isHelpCommand && sub != "init" && sub != "update" && sub != "up" {
+			// Ensure a git repo is connected (skip for passive and init commands)
+			if !devMode && !isPassiveCommand && !contains(noGitCommands, sub) {
 				if err := commands.EnsureInitialized(); err != nil {
 					return err
 				}
