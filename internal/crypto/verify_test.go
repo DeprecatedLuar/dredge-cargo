@@ -2,7 +2,10 @@ package crypto
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/DeprecatedLuar/dredge/internal/session"
 )
 
 func TestCreateAndVerifyPassword(t *testing.T) {
@@ -19,6 +22,7 @@ func TestCreateAndVerifyPassword(t *testing.T) {
 	oldXDG := os.Getenv("XDG_DATA_HOME")
 	os.Setenv("XDG_DATA_HOME", tmpDir)
 	defer os.Setenv("XDG_DATA_HOME", oldXDG)
+	session.SetVaultPath(filepath.Join(tmpDir, "dredge"))
 
 	testPassword := "test-password-123"
 
@@ -59,6 +63,7 @@ func TestVerifyPassword_FileNotFound(t *testing.T) {
 	oldXDG := os.Getenv("XDG_DATA_HOME")
 	os.Setenv("XDG_DATA_HOME", tmpDir)
 	defer os.Setenv("XDG_DATA_HOME", oldXDG)
+	session.SetVaultPath(filepath.Join(tmpDir, "dredge"))
 
 	// Try to verify when file doesn't exist
 	err = VerifyPassword("any-password")
@@ -104,6 +109,7 @@ func TestPasswordVerificationUniqueSalts(t *testing.T) {
 
 	// Create first verification file
 	os.Setenv("XDG_DATA_HOME", tmpDir1)
+	session.SetVaultPath(filepath.Join(tmpDir1, "dredge"))
 	if err := CreatePasswordVerification(password); err != nil {
 		t.Fatalf("First CreatePasswordVerification failed: %v", err)
 	}
@@ -112,6 +118,7 @@ func TestPasswordVerificationUniqueSalts(t *testing.T) {
 
 	// Create second verification file
 	os.Setenv("XDG_DATA_HOME", tmpDir2)
+	session.SetVaultPath(filepath.Join(tmpDir2, "dredge"))
 	if err := CreatePasswordVerification(password); err != nil {
 		t.Fatalf("Second CreatePasswordVerification failed: %v", err)
 	}
@@ -125,11 +132,13 @@ func TestPasswordVerificationUniqueSalts(t *testing.T) {
 
 	// But both should verify with the same password
 	os.Setenv("XDG_DATA_HOME", tmpDir1)
+	session.SetVaultPath(filepath.Join(tmpDir1, "dredge"))
 	if err := VerifyPassword(password); err != nil {
 		t.Errorf("First file verification failed: %v", err)
 	}
 
 	os.Setenv("XDG_DATA_HOME", tmpDir2)
+	session.SetVaultPath(filepath.Join(tmpDir2, "dredge"))
 	if err := VerifyPassword(password); err != nil {
 		t.Errorf("Second file verification failed: %v", err)
 	}

@@ -26,13 +26,6 @@ func Init(dredgeDir, remote string) error {
 		return fmt.Errorf("git not found - install git")
 	}
 
-	// Ensure dredge directory exists
-	if _, err := os.Stat(dredgeDir); os.IsNotExist(err) {
-		if err := os.MkdirAll(dredgeDir, 0700); err != nil {
-			return fmt.Errorf("failed to create dredge directory: %w", err)
-		}
-	}
-
 	normalizedRemote, err := normalizeRemote(remote)
 	if err != nil {
 		return err
@@ -54,7 +47,6 @@ func Init(dredgeDir, remote string) error {
 			if err := addRemote(dredgeDir, normalizedRemote); err != nil {
 				return err
 			}
-			fmt.Printf("Added remote: %s\n", normalizedRemote)
 		}
 		return nil
 	}
@@ -77,7 +69,7 @@ func Init(dredgeDir, remote string) error {
 		}
 	}
 
-	// Initial commit if there are items (and maybe push if remote present)
+	// Initial commit if there are items
 	itemsDir := filepath.Join(dredgeDir, "items")
 	if entries, err := os.ReadDir(itemsDir); err == nil && len(entries) > 0 {
 		if err := commitInitial(dredgeDir); err != nil {
@@ -87,15 +79,6 @@ func Init(dredgeDir, remote string) error {
 			if err := pushToRemote(dredgeDir); err != nil {
 				return err
 			}
-			fmt.Println("Initialized and pushed")
-		} else {
-			fmt.Println("Initialized (local-only, no remote)")
-		}
-	} else {
-		if normalizedRemote != "" {
-			fmt.Println("Initialized (no items to push yet)")
-		} else {
-			fmt.Println("Initialized (local-only, no remote)")
 		}
 	}
 
@@ -105,11 +88,11 @@ func Init(dredgeDir, remote string) error {
 // Push commits and pushes changes to remote
 func Push(dredgeDir string) error {
 	if !isGitRepo(dredgeDir) {
-		return fmt.Errorf("not a git repository - run 'dredge init [remote-url]' first")
+		return fmt.Errorf("not a git repository - run 'dredge remote <url>' to add a remote")
 	}
 
 	if _, ok := getRemoteURL(dredgeDir, "origin"); !ok {
-		return fmt.Errorf("no git remote configured - run 'dredge init <remote-url>' or add 'origin'")
+		return fmt.Errorf("no git remote configured - run 'dredge remote <url>' to add a remote")
 	}
 
 	// Always stage tracked files first
@@ -135,11 +118,11 @@ func Push(dredgeDir string) error {
 // Pull pulls latest changes from remote
 func Pull(dredgeDir string) error {
 	if !isGitRepo(dredgeDir) {
-		return fmt.Errorf("not a git repository - run 'dredge init [remote-url]' first")
+		return fmt.Errorf("not a git repository - run 'dredge remote <url>' to add a remote")
 	}
 
 	if _, ok := getRemoteURL(dredgeDir, "origin"); !ok {
-		return fmt.Errorf("no git remote configured - run 'dredge init <remote-url>' or add 'origin'")
+		return fmt.Errorf("no git remote configured - run 'dredge remote <url>' to add a remote")
 	}
 
 	// Get current branch name
@@ -176,7 +159,7 @@ func Sync(dredgeDir string) error {
 // Status shows what changes will be pushed
 func Status(dredgeDir string) error {
 	if !isGitRepo(dredgeDir) {
-		return fmt.Errorf("not a git repository - run 'dredge init [remote-url]' first")
+		return fmt.Errorf("not a git repository - run 'dredge remote <url>' to add a remote")
 	}
 
 	// Stage tracked files to see what would be committed
@@ -298,6 +281,17 @@ func pushToRemote(dir string) error {
 // IsInitialized returns true if dredgeDir is a git repository.
 func IsInitialized(dredgeDir string) bool {
 	return isGitRepo(dredgeDir)
+}
+
+// HasRemote returns true if dredgeDir is a git repo with an 'origin' remote.
+func HasRemote(dredgeDir string) bool {
+	_, ok := getRemoteURL(dredgeDir, "origin")
+	return ok
+}
+
+// RemoteURL returns the origin remote URL and true if one is configured.
+func RemoteURL(dredgeDir string) (string, bool) {
+	return getRemoteURL(dredgeDir, "origin")
 }
 
 // HasUnpushedChanges returns true if dredgeDir is a git repo AND has either

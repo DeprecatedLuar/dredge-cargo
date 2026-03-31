@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -28,13 +29,14 @@ const (
 	storageDirName = "storage"
 
 	// File names
+	activeFileName    = "active"
 	linksFileName     = "links.json"
 	gitignoreFileName = ".gitignore"
 	itemFileExt       = ""
 
 	// Permissions
-	dirPermissions      = 0700 // rwx------
-	itemFilePermissions = 0600 // rw-------
+	dirPermissions       = 0700 // rwx------
+	itemFilePermissions  = 0600 // rw-------
 	gitignorePermissions = 0644 // rw-r--r--
 
 	// Gitignore content
@@ -104,8 +106,9 @@ func (i *Item) UpdateModified() {
 	i.Modified = time.Now()
 }
 
-// GetDredgeDir returns the dredge data directory path
-func GetDredgeDir() (string, error) {
+// GetRegistryDir returns the dredge registry directory (~/.local/share/dredge/).
+// This directory stores the active vault pointer and is always XDG-based.
+func GetRegistryDir() (string, error) {
 	baseDir := os.Getenv(xdgDataHomeEnv)
 	if baseDir == "" {
 		homeDir, err := os.UserHomeDir()
@@ -115,6 +118,48 @@ func GetDredgeDir() (string, error) {
 		baseDir = filepath.Join(homeDir, defaultLocalDir, defaultShareDir)
 	}
 	return filepath.Join(baseDir, appName), nil
+}
+
+// GetActivePath reads the active vault path from the registry.
+// Returns empty string if no active vault is set.
+func GetActivePath() (string, error) {
+	registryDir, err := GetRegistryDir()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(filepath.Join(registryDir, activeFileName))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read active vault: %w", err)
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// SetActivePath writes the active vault path to the registry.
+func SetActivePath(path string) error {
+	registryDir, err := GetRegistryDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(registryDir, dirPermissions); err != nil {
+		return fmt.Errorf("failed to create registry directory: %w", err)
+	}
+	return os.WriteFile(filepath.Join(registryDir, activeFileName), []byte(path+"\n"), itemFilePermissions)
+}
+
+// GetDredgeDir returns the active vault directory path.
+// If no active vault is set, falls back to the registry directory (backward compat).
+func GetDredgeDir() (string, error) {
+	active, err := GetActivePath()
+	if err != nil {
+		return "", err
+	}
+	if active != "" {
+		return active, nil
+	}
+	return GetRegistryDir()
 }
 
 // GetItemsDir returns the items directory path

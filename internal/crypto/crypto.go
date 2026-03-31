@@ -4,6 +4,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
@@ -146,10 +147,18 @@ func ExtractSalt(data []byte) []byte {
 
 const sessionCacheFile = ".key" // Raw 32-byte derived master key
 
+// vaultKeyDir returns the session subdirectory scoped to the active vault,
+// so switching vaults never reuses a cached key from a different vault.
+// Path: $XDG_RUNTIME_DIR/dredge/$PPID/<vaulthash>/
+func vaultKeyDir() string {
+	h := sha256.Sum256([]byte(session.GetVaultPath()))
+	return filepath.Join(session.Dir(), fmt.Sprintf("%x", h)[:8])
+}
+
 // GetCachedKey retrieves the cached 32-byte master key from session.
 // Returns nil if cache doesn't exist or is not exactly KeySize bytes.
 func GetCachedKey() ([]byte, error) {
-	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
+	cachePath := filepath.Join(vaultKeyDir(), sessionCacheFile)
 
 	data, err := os.ReadFile(cachePath)
 	if err != nil {
@@ -172,11 +181,11 @@ func CacheKey(key []byte) error {
 		return fmt.Errorf("key must be %d bytes, got %d", KeySize, len(key))
 	}
 
-	if err := os.MkdirAll(session.Dir(), 0700); err != nil {
+	if err := os.MkdirAll(vaultKeyDir(), 0700); err != nil {
 		return fmt.Errorf("failed to create session directory: %w", err)
 	}
 
-	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
+	cachePath := filepath.Join(vaultKeyDir(), sessionCacheFile)
 	if err := os.WriteFile(cachePath, key, 0600); err != nil {
 		return fmt.Errorf("failed to cache key: %w", err)
 	}
@@ -186,7 +195,7 @@ func CacheKey(key []byte) error {
 
 // ClearSession removes the session cache file.
 func ClearSession() error {
-	cachePath := filepath.Join(session.Dir(), sessionCacheFile)
+	cachePath := filepath.Join(vaultKeyDir(), sessionCacheFile)
 	err := os.Remove(cachePath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to clear session cache: %w", err)
@@ -211,17 +220,11 @@ func GetPPID() string {
 
 // GetVerifyFilePath returns the full path to the password verification file.
 func GetVerifyFilePath() (string, error) {
-	baseDir := os.Getenv("XDG_DATA_HOME")
-	if baseDir == "" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		baseDir = filepath.Join(homeDir, ".local", "share")
+	vaultDir := session.GetVaultPath()
+	if vaultDir == "" {
+		return "", fmt.Errorf("no active vault")
 	}
-
-	dredgeDir := filepath.Join(baseDir, "dredge")
-	return filepath.Join(dredgeDir, PasswordVerifyFile), nil
+	return filepath.Join(vaultDir, PasswordVerifyFile), nil
 }
 
 // PasswordVerificationExists checks if the .dredge-key file exists.

@@ -12,6 +12,7 @@ import (
 	"github.com/DeprecatedLuar/dredge/internal/crypto"
 	"github.com/DeprecatedLuar/dredge/internal/selfheal"
 	"github.com/DeprecatedLuar/dredge/internal/session"
+	"github.com/DeprecatedLuar/dredge/internal/storage"
 )
 
 const githubRepo = "DeprecatedLuar/dredge"
@@ -154,9 +155,16 @@ func main() {
 			},
 			{
 				Name:  "init",
-				Usage: "Initialize git repository for sync",
+				Usage: "Initialize a vault at the given path (default: current dir)",
 				Action: func(c *cli.Context) error {
 					return commands.HandleInit(c.Args().Slice())
+				},
+			},
+			{
+				Name:  "remote",
+				Usage: "Wire a git remote to the active vault",
+				Action: func(c *cli.Context) error {
+					return commands.HandleRemote(c.Args().Slice())
 				},
 			},
 			{
@@ -204,6 +212,11 @@ func main() {
 			},
 		},
 		Before: func(c *cli.Context) error {
+			// Register active vault path — must be first (used by session key scoping and verify file)
+			if vaultDir, err := storage.GetDredgeDir(); err == nil {
+				session.SetVaultPath(vaultDir)
+			}
+
 			// Set debug mode for crypto package
 			crypto.DebugMode = debugMode
 
@@ -237,10 +250,8 @@ func main() {
 			// Determine the subcommand (empty string means no args → show help)
 			sub := c.Args().First()
 
-			// Commands that don't need vault access (no selfheal, no git check)
-			passiveCommands := []string{"", "help", "h", "update", "up"}
-			// Commands that additionally skip the git repo check
-			noGitCommands := []string{"init"}
+			// Commands that don't need vault access
+			passiveCommands := []string{"", "help", "h", "update", "up", "init"}
 
 			contains := func(list []string, s string) bool {
 				for _, v := range list {
@@ -258,8 +269,8 @@ func main() {
 				selfheal.Run()
 			}
 
-			// Ensure a git repo is connected (skip for passive and init commands)
-			if !devMode && !isPassiveCommand && !contains(noGitCommands, sub) {
+			// Ensure vault is initialized
+			if !devMode && !isPassiveCommand {
 				if err := commands.EnsureInitialized(); err != nil {
 					return err
 				}

@@ -12,6 +12,20 @@ const (
 	deletedCacheFile = "deleted"
 )
 
+// vaultPath holds the active vault directory for this process, set once at startup.
+var vaultPath string
+
+// SetVaultPath registers the active vault directory. Must be called at startup
+// before any session key operations.
+func SetVaultPath(path string) {
+	vaultPath = path
+}
+
+// GetVaultPath returns the active vault directory registered at startup.
+func GetVaultPath() string {
+	return vaultPath
+}
+
 // Dir returns the session-specific directory path.
 // The base runtime directory is resolved per-platform by runtimeDir() (see session_*.go).
 func Dir() string {
