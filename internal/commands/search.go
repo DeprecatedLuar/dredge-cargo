@@ -12,11 +12,7 @@ import (
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
 
-const (
-	smartThreshold = 2.5 // Top score must be 2.5x higher than second to auto-view
-)
-
-func HandleSearch(query string, luck bool, forceSearch bool) error {
+func HandleSearch(query string, luck bool) error {
 	// Get master key (checks session cache, prompts if needed)
 	key, err := crypto.GetKeyWithVerification()
 	if err != nil {
@@ -54,35 +50,7 @@ func HandleSearch(query string, luck bool, forceSearch bool) error {
 		return nil
 	}
 
-	// Determine viewing mode:
-	// 1. -l flag: always view top result
-	// 2. -s flag: always show list
-	// 3. Smart default: auto-view if clear winner, else list
-	// 4. Never auto-view binary items (force list instead)
-	shouldAutoView := false
-
 	if luck {
-		// Force view top result
-		shouldAutoView = true
-	} else if !forceSearch {
-		// Never auto-view binary items (they don't have readable content)
-		if results[0].Item.Type == storage.TypeBinary {
-			shouldAutoView = false
-		} else if len(results) == 1 {
-			// Only one result, definitely view it
-			shouldAutoView = true
-		} else if len(results) > 1 {
-			// Check if top result is significantly better than second
-			topScore := float64(results[0].Score)
-			secondScore := float64(results[1].Score)
-			if secondScore > 0 && topScore/secondScore >= smartThreshold {
-				shouldAutoView = true
-			}
-		}
-	}
-
-	// Auto-view top result if conditions met
-	if shouldAutoView {
 		return HandleView([]string{results[0].ID})
 	}
 

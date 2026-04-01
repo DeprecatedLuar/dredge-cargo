@@ -20,10 +20,9 @@ const githubRepo = "DeprecatedLuar/dredge"
 var version = "dev"
 
 var (
-	debugMode  bool
-	luckMode   bool
-	searchMode bool
-	devMode    bool
+	debugMode bool
+	luckMode  bool
+	devMode   bool
 )
 
 func main() {
@@ -46,12 +45,6 @@ func main() {
 				Aliases:     []string{"l"},
 				Usage:       "Force view top search result",
 				Destination: &luckMode,
-			},
-			&cli.BoolFlag{
-				Name:        "search",
-				Aliases:     []string{"s"},
-				Usage:       "Force show search list",
-				Destination: &searchMode,
 			},
 			&cli.BoolFlag{
 				Name:        "dev",
@@ -78,7 +71,7 @@ func main() {
 				Usage:   "Search for items",
 				Action: func(c *cli.Context) error {
 					query := strings.Join(c.Args().Slice(), " ")
-					return commands.HandleSearch(query, luckMode, searchMode)
+					return commands.HandleSearch(query, luckMode)
 				},
 			},
 			{
@@ -308,7 +301,7 @@ func main() {
 
 			// Fall back to search
 			query := strings.Join(args, " ")
-			return commands.HandleSearch(query, luckMode, searchMode)
+			return commands.HandleSearch(query, luckMode)
 		},
 	}
 
