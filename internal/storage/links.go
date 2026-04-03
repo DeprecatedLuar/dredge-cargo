@@ -98,11 +98,13 @@ func CreateSpawnedFile(id, content string) error {
 		return err
 	}
 
-	// Ensure .spawned/ directory exists
+	// Ensure .spawned/ directory exists with strict permissions
 	spawnedDir := filepath.Dir(spawnedPath)
 	if err := os.MkdirAll(spawnedDir, dirPermissions); err != nil {
 		return fmt.Errorf("failed to create .spawned directory: %w", err)
 	}
+	// Enforce permissions even if directory already existed
+	_ = os.Chmod(spawnedDir, dirPermissions)
 
 	// Write plain text content
 	if err := os.WriteFile(spawnedPath, []byte(content), spawnedPermissions); err != nil {

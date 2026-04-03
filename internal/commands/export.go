@@ -90,10 +90,13 @@ func HandleExport(args []string) error {
 		return fmt.Errorf("size mismatch: expected %d bytes, got %d bytes", *item.Size, len(contentToWrite))
 	}
 
-	// Determine file permissions (use stored mode or default to 0600 for security)
+	// Determine file permissions: use stored mode but cap at 0600 (no group/world access)
 	var fileMode os.FileMode = 0600
 	if item.Mode != nil {
-		fileMode = os.FileMode(*item.Mode)
+		fileMode = os.FileMode(*item.Mode) &^ 0077
+		if fileMode == 0 {
+			fileMode = 0600
+		}
 	}
 
 	// Write to output path

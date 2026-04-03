@@ -140,6 +140,14 @@ func main() {
 				},
 			},
 			{
+				Name:    "copy",
+				Aliases: []string{"cp"},
+				Usage:   "Copy item content to clipboard",
+				Action: func(c *cli.Context) error {
+					return commands.HandleCopy(c.Args().Slice())
+				},
+			},
+			{
 				Name:  "export",
 				Usage: "Export a binary item to filesystem",
 				Action: func(c *cli.Context) error {
