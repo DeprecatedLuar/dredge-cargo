@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 
@@ -19,6 +20,12 @@ import (
 
 // Debug mode flag (set from main)
 var DebugMode bool
+
+// NoLock disables the session timeout when set (--no-lock flag).
+var NoLock bool
+
+// SessionTimeout is the duration after which a cached key is considered expired.
+const SessionTimeout = 5 * 60 // seconds
 
 // pendingPassword holds a password provided via --password flag, used once by GetKeyWithVerification.
 // In-memory only — never written to disk.
@@ -160,11 +167,21 @@ func vaultKeyDir() string {
 func GetCachedKey() ([]byte, error) {
 	cachePath := filepath.Join(vaultKeyDir(), sessionCacheFile)
 
-	data, err := os.ReadFile(cachePath)
+	info, err := os.Stat(cachePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
+		return nil, fmt.Errorf("failed to stat session cache: %w", err)
+	}
+
+	if !NoLock && time.Since(info.ModTime()) > time.Duration(SessionTimeout)*time.Second {
+		_ = os.Remove(cachePath)
+		return nil, nil // expired
+	}
+
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
 		return nil, fmt.Errorf("failed to read session cache: %w", err)
 	}
 

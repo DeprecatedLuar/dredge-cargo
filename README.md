@@ -36,7 +36,7 @@ Search, don't organize. **_Notes, configs, keys, secrets_** — five seconds fro
 
 <div align="center">
 <!-- demo gif -->
-<img src="other/assets/demo.gif" alt="dredge demo" width="800"/>
+<img src="other/assets/dredge-demo.gif" alt="dredge demo" width="800"/>
 </div>
 
 ```bash
@@ -299,6 +299,7 @@ This is _actually_ the reason I built dredge. My SSH config is identical on ever
 | `search` / `s` | Search items | `dredge search aws key` |
 | `list` / `ls` | List all items | `dredge ls` |
 | `view` / `v` | View an item | `dredge view xKP` or `dredge 1` |
+| `cat` / `c` | Output raw content (for piping) | `dredge cat xKP \| bash` |
 | `edit` / `e` | Edit an item | `dredge edit xKP` |
 | `rm` | Remove (goes to trash) | `dredge rm 1 2 3` |
 | `undo` | Restore last removed item | `dredge undo` |
@@ -306,6 +307,8 @@ This is _actually_ the reason I built dredge. My SSH config is identical on ever
 | `unlink` | Remove a link | `dredge unlink xKP` |
 | `mv` / `rename` | Rename item ID | `dredge mv xKP abc` |
 | `export` | Export a file item to disk | `dredge export xKP ./output/` |
+| `copy` / `cp` | Copy item content to clipboard | `dredge copy xKP` |
+| `lock` | Lock the vault (clears session key) | `dredge lock` |
 | `init` | Initialize git repository | `dredge init owner/repo` |
 | `push` / `pull` / `sync` | Git sync | `dredge sync` |
 | `status` | Show pending changes | `dredge status` |

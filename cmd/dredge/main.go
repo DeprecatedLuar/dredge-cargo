@@ -23,6 +23,7 @@ var (
 	debugMode bool
 	luckMode  bool
 	devMode   bool
+	noLock    bool
 )
 
 func main() {
@@ -50,6 +51,11 @@ func main() {
 				Name:        "dev",
 				Usage:       "Skip git repo check (for local testing without a remote)",
 				Destination: &devMode,
+			},
+			&cli.BoolFlag{
+				Name:        "no-lock",
+				Usage:       "Disable session timeout for this command",
+				Destination: &noLock,
 			},
 		},
 		Commands: []*cli.Command{
@@ -86,8 +92,19 @@ func main() {
 				Name:    "view",
 				Aliases: []string{"v"},
 				Usage:   "View an item by ID",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "raw", Aliases: []string{"r"}, Usage: "Output raw content only"},
+				},
 				Action: func(c *cli.Context) error {
-					return commands.HandleView(c.Args().Slice())
+					return commands.HandleView(c.Args().Slice(), c.Bool("raw"))
+				},
+			},
+			{
+				Name:    "cat",
+				Aliases: []string{"c"},
+				Usage:   "Output raw item content (for piping)",
+				Action: func(c *cli.Context) error {
+					return commands.HandleCat(c.Args().Slice())
 				},
 			},
 			{
@@ -197,6 +214,13 @@ func main() {
 				},
 			},
 			{
+				Name:  "lock",
+				Usage: "Lock the vault (clears cached session key)",
+				Action: func(c *cli.Context) error {
+					return commands.HandleLock()
+				},
+			},
+			{
 				Name:  "passwd",
 				Usage: "Change vault password",
 				Action: func(c *cli.Context) error {
@@ -220,6 +244,7 @@ func main() {
 
 			// Set debug mode for crypto package
 			crypto.DebugMode = debugMode
+			crypto.NoLock = noLock
 
 			// Check if this is a new session (no cached password)
 			isNewSession := !crypto.HasActiveSession()
@@ -252,7 +277,7 @@ func main() {
 			sub := c.Args().First()
 
 			// Commands that don't need vault access
-			passiveCommands := []string{"", "help", "h", "update", "up", "init"}
+			passiveCommands := []string{"", "help", "h", "update", "up", "init", "lock"}
 
 			contains := func(list []string, s string) bool {
 				for _, v := range list {

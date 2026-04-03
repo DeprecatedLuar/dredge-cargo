@@ -9,10 +9,11 @@ import (
 	"github.com/DeprecatedLuar/dredge/internal/ui"
 )
 
-func HandleView(args []string) error {
+func HandleView(args []string, raw ...bool) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: dredge view <id>")
 	}
+	rawMode := len(raw) > 0 && raw[0]
 
 	// Resolve numbered arg to ID
 	ids, err := ResolveArgs(args[:1])
@@ -31,6 +32,14 @@ func HandleView(args []string) error {
 	item, err := storage.ReadItem(id, key)
 	if err != nil {
 		return fmt.Errorf("failed to read item: %w", err)
+	}
+
+	if rawMode {
+		if item.Type == storage.TypeBinary {
+			return fmt.Errorf("item %s is binary — use 'dredge export' to extract it", id)
+		}
+		fmt.Print(item.Content.Text)
+		return nil
 	}
 
 	// Print [ID] Title #tags (use <ID> for binary items)
