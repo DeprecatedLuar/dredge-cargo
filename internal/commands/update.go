@@ -54,9 +54,10 @@ func HandleUpdate(currentVersion, repo string) error {
 
 	fmt.Printf("Updating to %s...\n", latestVersion)
 
+	buildCmd := fmt.Sprintf("go build -ldflags='-s -w' -o %s ./cmd/%s", binaryName, binaryName)
 	installCmd := exec.Command("bash", "-c",
-		fmt.Sprintf(`bash <(curl -sSL %s) install "%s" "%s" "%s" "%s" "%s" ""`,
-			satelliteURL, repoName, binaryName, repoUser, repoName, installDir),
+		fmt.Sprintf(`bash <(curl -sSL %s) install "%s" "%s" "%s" "%s" "%s" "%s"`,
+			satelliteURL, repoName, binaryName, repoUser, repoName, installDir, buildCmd),
 	)
 	installCmd.Stdout = os.Stdout
 	installCmd.Stderr = os.Stderr
