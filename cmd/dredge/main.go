@@ -264,22 +264,21 @@ func main() {
 			// Check if this is a new session (no cached password)
 			isNewSession := !crypto.HasActiveSession()
 
-			// If password provided via flag, try to derive and cache key immediately.
+			// If password provided via --password flag or DREDGE_PASSWORD env var,
+			// verify immediately and hard-error on failure — never fall back to prompt.
 			// If vault doesn't exist yet, store as pending (used once by GetKeyWithVerification).
 			if password := c.String("password"); password != "" {
-				Debugf("Password provided via --password flag")
+				Debugf("Password provided via --password/DREDGE_PASSWORD")
 				if crypto.PasswordVerificationExists() {
 					key, err := crypto.DeriveKeyFromVault(password)
 					if err != nil {
-						fmt.Fprintf(os.Stderr, "Warning: failed to verify --password flag: %v\n", err)
-					} else {
-						if err := crypto.CacheKey(key); err != nil {
-							fmt.Fprintf(os.Stderr, "Warning: failed to cache key: %v\n", err)
-						} else {
-							Debugf("Key derived and cached from --password flag")
-							isNewSession = true
-						}
+						return fmt.Errorf("wrong password")
 					}
+					if err := crypto.CacheKey(key); err != nil {
+						return fmt.Errorf("failed to cache key: %w", err)
+					}
+					Debugf("Key derived and cached from --password/DREDGE_PASSWORD")
+					isNewSession = true
 				} else {
 					// First-time vault — store pending, GetKeyWithVerification will use it
 					crypto.SetPendingPassword(password)
