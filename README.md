@@ -89,7 +89,7 @@ Make sure `$GOPATH/bin` (usually `~/go/bin`) is in your `PATH`.
 Downloads a pre-built binary from releases. The script delegates to [the-satellite](https://github.com/DeprecatedLuar/the-satellite), a reusable installer library I use across projects for OS/arch detection and binary downloads. (I promise I'm not selling your data to China nor reading it)
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/DeprecatedLuar/dredge/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/DeprecatedLuar/the-satellite/main/satellite.sh | bash -s -- install DeprecatedLuar/dredge
 ```
 
 </details>
