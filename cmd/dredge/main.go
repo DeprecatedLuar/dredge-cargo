@@ -36,6 +36,7 @@ func main() {
 				Name:    "password",
 				Aliases: []string{"p"},
 				Usage:   "Password for decryption (skips prompt)",
+				EnvVars: []string{"DREDGE_PASSWORD"},
 			},
 			&cli.StringFlag{
 				Name:    "vault",

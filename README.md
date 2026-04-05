@@ -276,6 +276,7 @@ The spawned file is the only persistent plaintext on disk, and it only exists be
 ### Caveats
 
 - **`--password` flag:** Passing your password inline exposes it in shell history and `ps` output. Avoid it in shared environments.
+- **`DREDGE_PASSWORD` env var:** Environment variables can leak to child processes and may be readable by other processes depending on your OS/config. Prefer the prompt when possible.
 - **Linked items:** A linked item's plaintext lives at the symlink target (e.g. `~/.ssh/config`). It is not git-tracked, but it is on disk in plaintext.
 
 <div align="center">
