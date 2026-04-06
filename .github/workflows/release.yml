@@ -32,8 +32,7 @@ jobs:
         "
 
         VERSION=${GITHUB_REF#refs/tags/}
-        REPO=$(grep 'githubRepo' cmd/dredge/main.go | grep -oP '"[^"]+"' | tr -d '"')
-        BINARY_NAME=$(basename ${REPO})
+        BINARY_NAME=$(ls cmd/)
         MAIN_PACKAGE="./cmd/${BINARY_NAME}"
         LDFLAGS="-X main.version=${VERSION}"
         FILES=""

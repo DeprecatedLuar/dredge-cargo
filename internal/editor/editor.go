@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,9 +13,9 @@ import (
 )
 
 const (
-	defaultEditor  = "vim"
-	tempFilePrefix = "dredge-"
-	tempFileSuffix = ".txt"
+	defaultEditor       = "vim"
+	tempFilePrefix      = "dredge-"
+	defaultTempFileSuffix = ".md"
 )
 
 // OpenForNewItem opens editor with initial title/tags, returns new Item
@@ -24,7 +25,7 @@ func OpenForNewItem(title string, tags []string) (*storage.Item, error) {
 	templateContent := createTemplate(title, tags, "")
 
 	// Open editor and get edited content
-	editedContent, err := openEditor(templateContent)
+	editedContent, err := openEditor(templateContent, defaultTempFileSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -50,8 +51,13 @@ func OpenForExisting(item *storage.Item) (*storage.Item, error) {
 	// Create template from existing item
 	templateContent := createTemplate(item.Title, item.Tags, item.Content.Text)
 
+	suffix := defaultTempFileSuffix
+	if item.Filename != "" {
+		suffix = filepath.Ext(item.Filename)
+	}
+
 	// Open editor and get edited content
-	editedContent, err := openEditor(templateContent)
+	editedContent, err := openEditor(templateContent, suffix)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +80,6 @@ func OpenForExisting(item *storage.Item) (*storage.Item, error) {
 		Created:  item.Created,
 		Modified: time.Now(),
 		Filename: item.Filename,
-		Size:     item.Size,
 		Content: storage.ItemContent{
 			Text: parsedContent,
 		},
@@ -204,11 +209,11 @@ func parseTitleAndTags(line string) (title string, tags []string) {
 // OpenRawContent opens editor with raw text content, returns edited content
 // This is a low-level primitive for direct content editing (e.g., raw TOML)
 func OpenRawContent(initialContent string) (string, error) {
-	return openEditor(initialContent)
+	return openEditor(initialContent, ".txt")
 }
 
 // openEditor creates temp file, opens editor, returns edited content
-func openEditor(initialContent string) (string, error) {
+func openEditor(initialContent, suffix string) (string, error) {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = defaultEditor
@@ -220,7 +225,7 @@ func openEditor(initialContent string) (string, error) {
 	}
 
 	// Create temp file
-	tmpFile, err := os.CreateTemp(session.Dir(), tempFilePrefix+"*"+tempFileSuffix)
+	tmpFile, err := os.CreateTemp(session.Dir(), tempFilePrefix+"*"+suffix)
 	if err != nil {
 		return "", fmt.Errorf("failed to create temp file: %w", err)
 	}

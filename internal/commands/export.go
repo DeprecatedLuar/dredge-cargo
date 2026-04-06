@@ -85,8 +85,8 @@ func HandleExport(args []string) error {
 		contentToWrite = []byte(item.Content.Text)
 	}
 
-	// Verify size matches (if size metadata exists)
-	if item.Size != nil && int64(len(contentToWrite)) != *item.Size {
+	// Verify size for binary items only (text size is not stored — content is runtime)
+	if item.Type == storage.TypeBinary && item.Size != nil && int64(len(contentToWrite)) != *item.Size {
 		return fmt.Errorf("size mismatch: expected %d bytes, got %d bytes", *item.Size, len(contentToWrite))
 	}
 

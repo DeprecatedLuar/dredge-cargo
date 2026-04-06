@@ -173,7 +173,6 @@ func handleAddFile(args []string, filePath string) error {
 			Created:  time.Now(),
 			Modified: time.Now(),
 			Filename: filename,
-			Size:     &fileSize,
 			Mode:     &fileMode,
 			Content: storage.ItemContent{
 				Text: string(fileBytes),
