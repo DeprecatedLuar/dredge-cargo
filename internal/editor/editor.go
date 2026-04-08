@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	defaultEditor       = "vim"
-	tempFilePrefix      = "dredge-"
+	defaultEditor         = "vim"
+	tempFilePrefix        = "dredge-"
 	defaultTempFileSuffix = ".md"
 )
 
@@ -204,7 +204,6 @@ func parseTitleAndTags(line string) (title string, tags []string) {
 
 	return strings.TrimSpace(potentialTitle), validTags
 }
-
 
 // OpenRawContent opens editor with raw text content, returns edited content
 // This is a low-level primitive for direct content editing (e.g., raw TOML)

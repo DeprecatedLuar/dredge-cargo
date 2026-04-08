@@ -92,10 +92,10 @@ func TestParseTemplate(t *testing.T) {
 
 func TestParseTitleAndTags(t *testing.T) {
 	tests := []struct {
-		name         string
-		input        string
-		wantTitle    string
-		wantTags     []string
+		name      string
+		input     string
+		wantTitle string
+		wantTags  []string
 	}{
 		{
 			name:      "title with trailing tags",

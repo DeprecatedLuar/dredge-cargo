@@ -525,4 +525,3 @@ func ItemExists(id string) (bool, error) {
 	}
 	return false, fmt.Errorf("failed to check item existence: %w", err)
 }
-

@@ -358,7 +358,6 @@ func main() {
 	}
 }
 
-
 func Debugf(format string, args ...any) {
 	if debugMode {
 		fmt.Printf("[DEBUG] "+format+"\n", args...)
