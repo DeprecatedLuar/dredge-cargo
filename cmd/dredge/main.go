@@ -1,7 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -243,6 +245,14 @@ func main() {
 					return commands.HandleUpdate(version, githubRepo)
 				},
 			},
+			{
+				Name:    "help",
+				Aliases: []string{"h"},
+				Usage:   "Show help",
+				Action: func(c *cli.Context) error {
+					return commands.HandleHelp(c.Args().Slice())
+				},
+			},
 		},
 		Before: func(c *cli.Context) error {
 			// If --vault/DREDGE_VAULT is set, override for this invocation only
@@ -322,8 +332,7 @@ func main() {
 			// Default action: smart query routing
 			// Handles: dredge 1, dredge <id>, dredge <search-query>
 			if c.NArg() == 0 {
-				cli.ShowAppHelp(c)
-				return nil
+				return commands.HandleHelp(nil)
 			}
 
 			args := c.Args().Slice()
@@ -352,7 +361,11 @@ func main() {
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	cli.HelpPrinter = func(_ io.Writer, _ string, _ interface{}) {
+		commands.HandleHelp(nil) //nolint
+	}
+
+	if err := app.Run(os.Args); err != nil && err != flag.ErrHelp {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
