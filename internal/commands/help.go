@@ -47,8 +47,7 @@ func HandleHelp(args []string) error {
 			gohelp.Cmd("--luck, -l", "Force view the top search result"),
 			gohelp.Cmd("--no-lock", "Disable session timeout for this command"),
 		).
-		Text("Tip: bare args route automatically — 'dredge ssh' searches, 'dredge 1' opens result #1.").
-		Text("Run 'dredge help <topic>' for details. Topics: add, view, edit, link")
+		Text("Tip: bare args route automatically — 'dredge ssh' searches, 'dredge 1' opens result #1.")
 
 	addPage := gohelp.NewPage("add", "Add a new item to the vault").
 		Usage("dredge add [title] [-c content] [-t tag...] [--file path]").

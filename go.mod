@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/BurntSushi/toml v1.5.0
-	github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260410171942-3674fb519d3c
+	github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260411155400-88f59460efb1
 	github.com/hbollon/go-edlib v1.7.0
 	github.com/urfave/cli/v2 v2.27.7
 	golang.org/x/crypto v0.46.0

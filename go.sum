@@ -4,6 +4,8 @@ github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260410170252-07fa48f6f8ef h1:Ka4h
 github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260410170252-07fa48f6f8ef/go.mod h1:NNkVN8aJBJaCiJvUNL9vOYmYuVKlzCHL/EV2wzG+3cc=
 github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260410171942-3674fb519d3c h1:9dQe900lHRY+vPJM/m4cA23AGsIdoMJa+/pp2CLCklU=
 github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260410171942-3674fb519d3c/go.mod h1:NNkVN8aJBJaCiJvUNL9vOYmYuVKlzCHL/EV2wzG+3cc=
+github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260411155400-88f59460efb1 h1:dK+yU6BOFpzRuiLLjE91H9ziKG+c/huN0KZR2gYKV6E=
+github.com/DeprecatedLuar/gohelp-luar v0.0.0-20260411155400-88f59460efb1/go.mod h1:Cyu+2LWntqOPywRtAZHADj8EgOe+R3s0+hjjp5XHOow=
 github.com/cpuguy83/go-md2man/v2 v2.0.7 h1:zbFlGlXEAKlwXpmvle3d8Oe3YnkKIK4xSRTd3sHPnBo=
 github.com/cpuguy83/go-md2man/v2 v2.0.7/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/hbollon/go-edlib v1.7.0 h1:Jt3AtZ+AdgtJhzkrCFvkbdbNL3KCqZlGioLnUfwsxeU=
