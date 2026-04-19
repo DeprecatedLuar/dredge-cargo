@@ -77,35 +77,36 @@ Even a _legal_ copy of Chainsaw Man chapter 2 in Japanese. (I may or not have th
 
 <h2 id="install"><img height="32" src="other/assets/fish/dredge-crab.webp"/> Install</h2>
 
-**If you have Go:**
+![macOS](https://img.shields.io/badge/macOS-black?style=flat-square&logo=apple&logoColor=white) ![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)
 
+### Go
 ```bash
 go install github.com/DeprecatedLuar/dredge-cargo/cmd/dredge@latest
 ```
 
 Make sure `$GOPATH/bin` (usually `~/go/bin`) is in your `PATH`.
 
-<details>
-<summary>If you don't have Go. Install script here.</summary>
-
-<br>
-
-Downloads a pre-built binary from releases. The script delegates to [the-satellite](https://github.com/DeprecatedLuar/the-satellite), a reusable installer library I use across projects for OS/arch detection and binary downloads. (I promise I'm not selling your data to China nor reading it)
-
+### Universal
 ```bash
 curl -sSL https://raw.githubusercontent.com/DeprecatedLuar/the-satellite/main/satellite.sh | bash -s -- install DeprecatedLuar/dredge-cargo:dredge
 ```
 
-</details>
-
 <details>
-<summary>Build from source</summary>
+<summary>Other Install Methods</summary>
 
 <br>
 
+**Manual Install**
+1. Download binary for your OS from [releases](https://github.com/DeprecatedLuar/dredge-cargo/releases)
+2. Make executable: `chmod +x dredge-*`
+3. Move to PATH: `mv dredge-* ~/.local/bin/dredge`
+
+---
+
+**From Source**
 ```bash
 git clone https://github.com/DeprecatedLuar/dredge-cargo
-cd dredge
+cd dredge-cargo
 go build -o dredge ./cmd/dredge
 mv dredge ~/.local/bin/
 ```
@@ -281,6 +282,10 @@ dredge link <id> ~/.ssh/config
 ```
 
 This command will make a symlink at `~/.ssh/config` pointing to a plaintext copy dredge manages (the file gets exposed to disk so you can use it). You can edit the file directly or through `dredge edit` or whatever you feel like, all changes sync back to the encrypted store automatically.
+
+<div align="center">
+<img src="other/assets/dredge-link-demo.gif" alt="dredge link demo" width="800"/>
+</div>
 
 On a new machine:
 
