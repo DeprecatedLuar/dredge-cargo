@@ -12,6 +12,43 @@ import (
 	"github.com/DeprecatedLuar/dredge-cargo/internal/ui"
 )
 
+// SearchTopResult searches for query and returns the top matching item ID.
+func SearchTopResult(query string) (string, error) {
+	key, err := crypto.GetKeyWithVerification()
+	if err != nil {
+		return "", fmt.Errorf("key error: %w", err)
+	}
+	ids, err := storage.ListItemIDs()
+	if err != nil {
+		return "", fmt.Errorf("failed to list items: %w", err)
+	}
+	items := make(map[string]*storage.Item)
+	for _, id := range ids {
+		item, err := storage.ReadItem(id, key)
+		if err != nil {
+			continue
+		}
+		items[id] = item
+	}
+	results := search.Search(items, query)
+	if len(results) == 0 {
+		return "", fmt.Errorf("no results found for: %s", query)
+	}
+	return results[0].ID, nil
+}
+
+// ResolveSingle resolves a single arg to an item ID.
+// Numbers resolve via cache; with luck=true a non-ID arg is treated as a search query.
+func ResolveSingle(arg string, luck bool) (string, error) {
+	if num, err := strconv.Atoi(arg); err == nil && num > 0 && len(arg) <= 2 {
+		return session.GetCachedResult(num)
+	}
+	if luck && !idPattern.MatchString(arg) {
+		return SearchTopResult(arg)
+	}
+	return arg, nil
+}
+
 func HandleSearch(query string, luck bool) error {
 	// Get master key (checks session cache, prompts if needed)
 	key, err := crypto.GetKeyWithVerification()
@@ -51,7 +88,7 @@ func HandleSearch(query string, luck bool) error {
 	}
 
 	if luck {
-		return HandleView([]string{results[0].ID})
+		return HandleView([]string{results[0].ID}, false)
 	}
 
 	// Show list

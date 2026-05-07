@@ -29,6 +29,56 @@ var (
 	noLock    bool
 )
 
+// hoistGlobalFlag moves any occurrence of the named flags to immediately after the binary name
+// so urfave/cli parses them as global flags regardless of where the user placed them.
+func hoistGlobalFlag(args []string, flags ...string) []string {
+	if len(args) < 2 {
+		return args
+	}
+	isFlagMatch := func(a string) bool {
+		for _, f := range flags {
+			if a == f {
+				return true
+			}
+		}
+		return false
+	}
+	var hoisted, rest []string
+	for _, a := range args[1:] {
+		if isFlagMatch(a) {
+			hoisted = append(hoisted, a)
+		} else {
+			rest = append(rest, a)
+		}
+	}
+	if len(hoisted) == 0 {
+		return args
+	}
+	return append([]string{args[0]}, append(hoisted, rest...)...)
+}
+
+// resolveLucky replaces the first non-flag arg with the top search result when luckMode is on.
+// This lets any command accept a search query in place of a direct item ID.
+func resolveLucky(args []string) ([]string, error) {
+	if !luckMode || len(args) == 0 {
+		return args, nil
+	}
+	for i, arg := range args {
+		if len(arg) == 0 || arg[0] == '-' {
+			continue
+		}
+		id, err := commands.ResolveSingle(arg, true)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]string, len(args))
+		copy(result, args)
+		result[i] = id
+		return result, nil
+	}
+	return args, nil
+}
+
 func main() {
 	app := &cli.App{
 		Name:  "dredge",
@@ -51,9 +101,9 @@ func main() {
 				Destination: &debugMode,
 			},
 			&cli.BoolFlag{
-				Name:        "luck",
+				Name:        "lets-go-gambling",
 				Aliases:     []string{"l"},
-				Usage:       "Force view top search result",
+				Usage:       "Resolve query to top search result and pass to command",
 				Destination: &luckMode,
 			},
 			&cli.BoolFlag{
@@ -105,7 +155,11 @@ func main() {
 					&cli.BoolFlag{Name: "raw", Aliases: []string{"r"}, Usage: "Output raw content only"},
 				},
 				Action: func(c *cli.Context) error {
-					return commands.HandleView(c.Args().Slice(), c.Bool("raw"))
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleView(args, c.Bool("raw"))
 				},
 			},
 			{
@@ -113,7 +167,11 @@ func main() {
 				Aliases: []string{"c"},
 				Usage:   "Output raw item content (for piping)",
 				Action: func(c *cli.Context) error {
-					return commands.HandleCat(c.Args().Slice())
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleCat(args)
 				},
 			},
 			{
@@ -123,14 +181,26 @@ func main() {
 				SkipFlagParsing:        true,
 				UseShortOptionHandling: false,
 				Action: func(c *cli.Context) error {
-					return commands.HandleEdit(c.Args().Slice())
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleEdit(args)
 				},
 			},
 			{
 				Name:  "rm",
 				Usage: "Remove an item",
 				Action: func(c *cli.Context) error {
-					return commands.HandleRemove(c.Args().Slice())
+					args := c.Args().Slice()
+					if luckMode {
+						id, err := commands.SearchTopResult(strings.Join(args, " "))
+						if err != nil {
+							return err
+						}
+						args = []string{id}
+					}
+					return commands.HandleRemove(args)
 				},
 			},
 			{
@@ -145,7 +215,11 @@ func main() {
 				Aliases: []string{"rename", "rn"},
 				Usage:   "Rename an item ID",
 				Action: func(c *cli.Context) error {
-					return commands.HandleMove(c.Args().Slice())
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleMove(args)
 				},
 			},
 			{
@@ -155,14 +229,22 @@ func main() {
 				SkipFlagParsing:        true,
 				UseShortOptionHandling: false,
 				Action: func(c *cli.Context) error {
-					return commands.HandleLink(c.Args().Slice())
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleLink(args)
 				},
 			},
 			{
 				Name:  "unlink",
 				Usage: "Unlink an item from system path",
 				Action: func(c *cli.Context) error {
-					return commands.HandleUnlink(c.Args().Slice())
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleUnlink(args)
 				},
 			},
 			{
@@ -170,14 +252,22 @@ func main() {
 				Aliases: []string{"cp"},
 				Usage:   "Copy item content to clipboard",
 				Action: func(c *cli.Context) error {
-					return commands.HandleCopy(c.Args().Slice())
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleCopy(args)
 				},
 			},
 			{
 				Name:  "export",
 				Usage: "Export a binary item to filesystem",
 				Action: func(c *cli.Context) error {
-					return commands.HandleExport(c.Args().Slice())
+					args, err := resolveLucky(c.Args().Slice())
+					if err != nil {
+						return err
+					}
+					return commands.HandleExport(args)
 				},
 			},
 			{
@@ -365,7 +455,11 @@ func main() {
 		commands.HandleHelp(nil) //nolint
 	}
 
-	if err := app.Run(os.Args); err != nil && err != flag.ErrHelp {
+	// Hoist -l/--lets-go-gambling to before the subcommand so urfave treats it as a global flag
+	// regardless of where the user places it (e.g. `dredge cp foo -l`).
+	runArgs := hoistGlobalFlag(os.Args, "-l", "--lets-go-gambling")
+
+	if err := app.Run(runArgs); err != nil && err != flag.ErrHelp {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
