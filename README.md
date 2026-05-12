@@ -5,6 +5,7 @@
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/DeprecatedLuar/dredge)](https://goreportcard.com/report/github.com/DeprecatedLuar/dredge)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/DeprecatedLuar/dredge?logo=go&logoColor=white&color=00ADD8)](https://go.dev)
+[![oosmetrics](https://api.oosmetrics.com/api/v1/badge/achievement/a7e53217-de67-4e50-aa1f-77714ed58d17.svg)](https://oosmetrics.com/repo/DeprecatedLuar/dredge-cargo)
 <!-- [![codecov](https://codecov.io/gh/DeprecatedLuar/dredge-cargo/graph/badge.svg)](https://codecov.io/gh/DeprecatedLuar/dredge-cargo) -->
 
 <div align="center">
