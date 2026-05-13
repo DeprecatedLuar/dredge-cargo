@@ -13,7 +13,9 @@ import (
 
 func HandleList(args []string) error {
 	if len(args) != 0 {
-		return fmt.Errorf("usage: dredge list")
+		// If args provided, treat as search query (including "list" prefix)
+		query := "list " + strings.Join(args, " ")
+		return HandleSearch(query, false)
 	}
 
 	// Get master key (checks session cache, prompts if needed)

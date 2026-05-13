@@ -57,26 +57,39 @@ func hoistGlobalFlag(args []string, flags ...string) []string {
 	return append([]string{args[0]}, append(hoisted, rest...)...)
 }
 
-// resolveLucky replaces the first non-flag arg with the top search result when luckMode is on.
+// resolveLucky replaces all non-flag args with the top search result when luckMode is on.
 // This lets any command accept a search query in place of a direct item ID.
 func resolveLucky(args []string) ([]string, error) {
 	if !luckMode || len(args) == 0 {
 		return args, nil
 	}
-	for i, arg := range args {
-		if len(arg) == 0 || arg[0] == '-' {
-			continue
+
+	// Collect all non-flag args to form complete search query
+	var queryParts []string
+	var flags []string
+	for _, arg := range args {
+		if len(arg) > 0 && arg[0] == '-' {
+			flags = append(flags, arg)
+		} else if len(arg) > 0 {
+			queryParts = append(queryParts, arg)
 		}
-		id, err := commands.ResolveSingle(arg, true)
-		if err != nil {
-			return nil, err
-		}
-		result := make([]string, len(args))
-		copy(result, args)
-		result[i] = id
-		return result, nil
 	}
-	return args, nil
+
+	if len(queryParts) == 0 {
+		return args, nil
+	}
+
+	// Join all non-flag args into single query and resolve
+	query := strings.Join(queryParts, " ")
+	id, err := commands.ResolveSingle(query, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Return ID + flags
+	result := []string{id}
+	result = append(result, flags...)
+	return result, nil
 }
 
 func main() {
