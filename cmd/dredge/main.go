@@ -364,10 +364,14 @@ func main() {
 				if err != nil {
 					return fmt.Errorf("failed to resolve vault path: %w", err)
 				}
+				Debugf("Vault override: %s (via --vault or DREDGE_VAULT)", abs)
 				storage.SetVaultOverride(abs)
 				session.SetVaultPath(abs)
 			} else if vaultDir, err := storage.GetDredgeDir(); err == nil {
+				Debugf("Vault path from registry: %s", vaultDir)
 				session.SetVaultPath(vaultDir)
+			} else {
+				Debugf("Failed to get vault directory: %v", err)
 			}
 
 			// Set debug mode for crypto package

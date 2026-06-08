@@ -46,7 +46,14 @@ func generateID() (string, error) {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 	id := base64.RawURLEncoding.EncodeToString(bytes)
-	return id[:idLength], nil
+	id = id[:idLength]
+
+	// Reject IDs starting with - or _ to avoid CLI flag conflicts
+	if len(id) > 0 && (id[0] == '-' || id[0] == '_') {
+		return generateID() // Retry with new random bytes
+	}
+
+	return id, nil
 }
 
 // parseAddArgs manually parses args to extract title, content, tags, and file path

@@ -18,6 +18,12 @@ func HandleInit(args []string) error {
 		return fmt.Errorf("usage: dredge init [path]")
 	}
 
+	// Warn about and clear any vault override - init always uses the explicit path
+	if override := storage.GetVaultOverride(); override != "" {
+		fmt.Printf("Note: Ignoring DREDGE_VAULT env var (%s) for init command\n", override)
+		storage.SetVaultOverride("")
+	}
+
 	path := "."
 	if len(args) == 1 {
 		path = args[0]
@@ -83,8 +89,13 @@ func EnsureInitialized() error {
 	if err != nil {
 		return fmt.Errorf("failed to determine vault directory: %w", err)
 	}
+
 	if !isVaultDir(vaultDir) {
-		return fmt.Errorf("no vault initialized - run 'dredge init [path]'")
+		// Check if an override is active
+		if override := storage.GetVaultOverride(); override != "" {
+			return fmt.Errorf("vault not found at %q (from --vault or DREDGE_VAULT)\nHint: Unset DREDGE_VAULT or use 'dredge init' to create a vault", vaultDir)
+		}
+		return fmt.Errorf("no vault initialized at %q\nRun 'dredge init [path]' to create a vault", vaultDir)
 	}
 	return nil
 }

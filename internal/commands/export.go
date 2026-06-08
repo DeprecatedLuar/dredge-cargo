@@ -51,19 +51,21 @@ func HandleExport(args []string) error {
 			outputPath = absPath
 		}
 
-		// If output path is a directory, append original filename
+		// If output path is a directory, append filename (use stored or auto-generate)
 		if stat, err := os.Stat(outputPath); err == nil && stat.IsDir() {
-			if item.Filename == "" {
-				return fmt.Errorf("item has no filename and output path is a directory")
+			filename := item.Filename
+			if filename == "" {
+				filename = id + ".txt" // Auto-generate for text items
 			}
-			outputPath = filepath.Join(outputPath, item.Filename)
+			outputPath = filepath.Join(outputPath, filename)
 		}
 	} else {
-		// Use original filename in current directory
-		if item.Filename == "" {
-			return fmt.Errorf("item has no filename and no output path provided")
+		// Use stored filename or auto-generate for text items
+		if item.Filename != "" {
+			outputPath = item.Filename
+		} else {
+			outputPath = id + ".txt" // Auto-generate for text items
 		}
-		outputPath = item.Filename
 	}
 
 	// Check if file already exists

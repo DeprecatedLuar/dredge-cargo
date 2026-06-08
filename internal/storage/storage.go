@@ -62,6 +62,11 @@ func getVaultOverride() string {
 	return vaultOverride
 }
 
+// GetVaultOverride returns the current vault override (empty string if none set).
+func GetVaultOverride() string {
+	return getVaultOverride()
+}
+
 // ItemType represents the type of content stored in an item
 type ItemType string
 
