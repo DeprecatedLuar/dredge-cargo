@@ -472,9 +472,9 @@ func main() {
 		commands.HandleHelp(nil) //nolint
 	}
 
-	// Hoist -l/--lets-go-gambling to before the subcommand so urfave treats it as a global flag
-	// regardless of where the user places it (e.g. `dredge cp foo -l`).
-	runArgs := hoistGlobalFlag(os.Args, "-l", "--lets-go-gambling")
+	// Hoist global flags to before the subcommand so urfave treats them as global flags
+	// regardless of where the user places them (e.g. `dredge cp foo -l`).
+	runArgs := hoistGlobalFlag(os.Args, "-l", "--lets-go-gambling", "--debug")
 
 	if err := app.Run(runArgs); err != nil && err != flag.ErrHelp {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

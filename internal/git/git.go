@@ -247,8 +247,9 @@ func commitChanges(dir string) error {
 	}
 
 	// Commit
-	if _, err := runGitCommand(dir, "commit", "-m", commitMsg); err != nil {
-		return fmt.Errorf("failed to commit: %w", err)
+	output, err := runGitCommand(dir, "commit", "-m", commitMsg)
+	if err != nil {
+		return fmt.Errorf("failed to commit: %s", strings.TrimSpace(output))
 	}
 
 	// Print colored summary

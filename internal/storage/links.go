@@ -260,8 +260,20 @@ func Link(id, targetPath string, force bool) error {
 		return err
 	}
 
+	// Check for stale manifest entry (symlink manually deleted)
 	if entry, exists := manifest[id]; exists {
-		return fmt.Errorf("item %s already linked to %s", id, entry.Path)
+		// Verify symlink actually exists on disk
+		if _, err := os.Lstat(entry.Path); err == nil {
+			// Symlink exists, reject operation
+			return fmt.Errorf("item %s already linked to %s", id, entry.Path)
+		}
+		// Symlink missing → auto-clean stale manifest entry
+		delete(manifest, id)
+		SaveManifest(manifest) // Best-effort cleanup, ignore error
+		// Also remove orphaned spawned file if it exists
+		if spawnedPath, err := GetSpawnedPath(id); err == nil {
+			os.Remove(spawnedPath)
+		}
 	}
 
 	key, err := crypto.GetKeyWithVerification()
