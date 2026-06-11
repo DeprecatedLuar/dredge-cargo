@@ -147,6 +147,61 @@ func hashSpawnedFile(id string) (string, error) {
 	return hashFile(spawnedPath)
 }
 
+// repairRenamedLink scans the original directory for a symlink pointing to our spawned file
+func repairRenamedLink(id string, oldEntry LinkEntry, manifest LinkManifest) bool {
+	spawnedPath, err := GetSpawnedPath(id)
+	if err != nil {
+		return false
+	}
+
+	dir := filepath.Dir(oldEntry.Path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+
+	// Build set of paths already in manifest
+	tracked := make(map[string]bool)
+	for _, e := range manifest {
+		tracked[e.Path] = true
+	}
+
+	// Get absolute path of spawned file for comparison
+	absSpawned, err := filepath.Abs(spawnedPath)
+	if err != nil {
+		absSpawned = spawnedPath
+	}
+
+	for _, entry := range entries {
+		candidatePath := filepath.Join(dir, entry.Name())
+		if tracked[candidatePath] {
+			continue // Already tracked by another item
+		}
+
+		target, err := os.Readlink(candidatePath)
+		if err != nil {
+			continue // Not a symlink
+		}
+
+		// Resolve to absolute path for comparison
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		absTarget, err := filepath.Abs(target)
+		if err == nil {
+			target = absTarget
+		}
+
+		if target == absSpawned {
+			// Found it! Update manifest
+			manifest[id] = LinkEntry{Path: candidatePath, Hash: oldEntry.Hash}
+			return true
+		}
+	}
+
+	return false
+}
+
 // syncItemIfNeeded checks if spawned file changed and syncs to encrypted item
 func syncItemIfNeeded(id string, key []byte) error {
 	manifest, err := LoadManifest()
@@ -159,11 +214,11 @@ func syncItemIfNeeded(id string, key []byte) error {
 		return nil
 	}
 
+	// Selfheal already handled missing/renamed symlinks at session start
 	currentHash, hashErr := hashSpawnedFile(id)
 
 	// Spawned file missing → recreate it from the encrypted item
 	if hashErr != nil {
-		spawnedPath, _ := GetSpawnedPath(id)
 		if os.IsNotExist(hashErr) {
 			itemPath, _ := GetItemPath(id)
 			encryptedData, err := os.ReadFile(itemPath)
@@ -181,10 +236,7 @@ func syncItemIfNeeded(id string, key []byte) error {
 			if err := CreateSpawnedFile(id, item.Content.Text); err != nil {
 				return err
 			}
-			// Recreate symlink if broken
-			if _, err := os.Lstat(entry.Path); os.IsNotExist(err) {
-				os.Symlink(spawnedPath, entry.Path)
-			}
+			// Symlink will be handled by repair logic at the start of this function
 			newHash, _ := hashSpawnedFile(id)
 			entry.Hash = newHash
 			manifest[id] = entry
@@ -367,25 +419,36 @@ func GetOrphanedLinkIDs() []string {
 	return orphaned
 }
 
-// RepairBrokenSymlinks recreates symlinks that are in the manifest but missing on disk
+// RepairBrokenSymlinks intelligently repairs or cleans up broken symlinks
+// If a symlink was renamed in the same directory, updates the manifest
+// If it was truly deleted, cleans up the manifest entry
 func RepairBrokenSymlinks() {
 	manifest, err := LoadManifest()
 	if err != nil {
 		return
 	}
 
+	modified := false
 	for id, entry := range manifest {
+		// Check if symlink at manifest path is missing
 		if _, err := os.Lstat(entry.Path); !os.IsNotExist(err) {
-			continue // symlink exists (or other error), skip
+			continue // symlink exists, skip
 		}
-		spawnedPath, err := GetSpawnedPath(id)
-		if err != nil {
+
+		// Missing! Try to find if it was renamed
+		if repaired := repairRenamedLink(id, entry, manifest); repaired {
+			modified = true
 			continue
 		}
-		if _, err := os.Stat(spawnedPath); err != nil {
-			continue // spawned file also missing, skip (orphan cleanup handles this)
-		}
-		os.Symlink(spawnedPath, entry.Path)
+
+		// Not found - clean up orphan
+		delete(manifest, id)
+		RemoveSpawnedFile(id)
+		modified = true
+	}
+
+	if modified {
+		SaveManifest(manifest)
 	}
 }
 

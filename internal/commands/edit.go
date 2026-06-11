@@ -92,14 +92,15 @@ type = %q`,
 		formatTags(item.Tags),
 		item.Type)
 
-	// Add filename and mode if present (from --file imports)
-	// Note: size is computed, not editable
-	if item.Filename != "" {
-		metadataTOML += fmt.Sprintf("\nfilename = %q", item.Filename)
-	}
+	// Always show filename and mode (even if empty) so users can add/edit them
+	filename := item.Filename
+	metadataTOML += fmt.Sprintf("\nfilename = %q", filename)
+
+	mode := ""
 	if item.Mode != nil {
-		metadataTOML += fmt.Sprintf("\nmode = \"%o\"", *item.Mode)
+		mode = fmt.Sprintf("%o", *item.Mode)
 	}
+	metadataTOML += fmt.Sprintf("\nmode = %q", mode)
 
 	// Open editor with metadata
 	editedMetadata, err := editor.OpenRawContent(metadataTOML)

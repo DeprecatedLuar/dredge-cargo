@@ -1,15 +1,11 @@
 package main
 
 import (
-	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/urfave/cli/v2"
 
 	"github.com/DeprecatedLuar/dredge-cargo/internal/commands"
 	"github.com/DeprecatedLuar/dredge-cargo/internal/crypto"
@@ -29,36 +25,90 @@ var (
 	noLock    bool
 )
 
-// hoistGlobalFlag moves any occurrence of the named flags to immediately after the binary name
-// so urfave/cli parses them as global flags regardless of where the user placed them.
-func hoistGlobalFlag(args []string, flags ...string) []string {
-	if len(args) < 2 {
-		return args
+// ============================================================================
+// Flag Helpers - Simple, focused utilities for organic flag handling
+// ============================================================================
+
+// extractGlobalFlags pulls global flags from anywhere in args and returns remaining args.
+// Supports: --debug, -l/--lets-go-gambling, --password=X/-p=X, --vault=X, --dev, --no-lock
+func extractGlobalFlags(args []string) []string {
+	var remaining []string
+	skipNext := false
+
+	for i, arg := range args {
+		if skipNext {
+			skipNext = false
+			continue
+		}
+
+		switch {
+		case arg == "--debug":
+			debugMode = true
+		case arg == "-l", arg == "--lets-go-gambling":
+			luckMode = true
+		case arg == "--dev":
+			devMode = true
+		case arg == "--no-lock":
+			noLock = true
+		case arg == "--password", arg == "-p":
+			if i+1 < len(args) {
+				os.Setenv("DREDGE_PASSWORD", args[i+1])
+				skipNext = true
+			}
+		case strings.HasPrefix(arg, "--password="):
+			os.Setenv("DREDGE_PASSWORD", strings.TrimPrefix(arg, "--password="))
+		case strings.HasPrefix(arg, "-p="):
+			os.Setenv("DREDGE_PASSWORD", strings.TrimPrefix(arg, "-p="))
+		case arg == "--vault":
+			if i+1 < len(args) {
+				os.Setenv("DREDGE_VAULT", args[i+1])
+				skipNext = true
+			}
+		case strings.HasPrefix(arg, "--vault="):
+			os.Setenv("DREDGE_VAULT", strings.TrimPrefix(arg, "--vault="))
+		default:
+			remaining = append(remaining, arg)
+		}
 	}
-	isFlagMatch := func(a string) bool {
-		for _, f := range flags {
-			if a == f {
+
+	return remaining
+}
+
+// hasFlag checks if any of the given flags exist in args
+func hasFlag(args []string, flags ...string) bool {
+	for _, arg := range args {
+		for _, flag := range flags {
+			if arg == flag {
 				return true
 			}
 		}
-		return false
 	}
-	var hoisted, rest []string
-	for _, a := range args[1:] {
-		if isFlagMatch(a) {
-			hoisted = append(hoisted, a)
-		} else {
-			rest = append(rest, a)
-		}
-	}
-	if len(hoisted) == 0 {
-		return args
-	}
-	return append([]string{args[0]}, append(hoisted, rest...)...)
+	return false
 }
 
+// removeFlags returns args with all specified flags removed
+func removeFlags(args []string, flags ...string) []string {
+	var result []string
+	for _, arg := range args {
+		isFlag := false
+		for _, flag := range flags {
+			if arg == flag {
+				isFlag = true
+				break
+			}
+		}
+		if !isFlag {
+			result = append(result, arg)
+		}
+	}
+	return result
+}
+
+// ============================================================================
+// Luck Mode - Resolve search queries to item IDs
+// ============================================================================
+
 // resolveLucky replaces all non-flag args with the top search result when luckMode is on.
-// This lets any command accept a search query in place of a direct item ID.
 func resolveLucky(args []string) ([]string, error) {
 	if !luckMode || len(args) == 0 {
 		return args, nil
@@ -92,398 +142,332 @@ func resolveLucky(args []string) ([]string, error) {
 	return result, nil
 }
 
+// ============================================================================
+// Before Hook - Vault setup, password handling, self-heal
+// ============================================================================
+
+func runBefore(commandName string) error {
+	// If --vault/DREDGE_VAULT is set, override for this invocation only
+	if v := strings.TrimSpace(os.Getenv("DREDGE_VAULT")); v != "" {
+		abs, err := filepath.Abs(v)
+		if err != nil {
+			return fmt.Errorf("failed to resolve vault path: %w", err)
+		}
+		Debugf("Vault override: %s (via --vault or DREDGE_VAULT)", abs)
+		storage.SetVaultOverride(abs)
+		session.SetVaultPath(abs)
+	} else if vaultDir, err := storage.GetDredgeDir(); err == nil {
+		Debugf("Vault path from registry: %s", vaultDir)
+		session.SetVaultPath(vaultDir)
+	} else {
+		Debugf("Failed to get vault directory: %v", err)
+	}
+
+	// Set debug mode for crypto package
+	crypto.DebugMode = debugMode
+	crypto.NoLock = noLock
+
+	// Check if this is a new session (no cached password)
+	isNewSession := !crypto.HasActiveSession()
+
+	// If password provided via --password flag or DREDGE_PASSWORD env var,
+	// verify immediately and hard-error on failure — never fall back to prompt.
+	// If vault doesn't exist yet, store as pending (used once by GetKeyWithVerification).
+	if password := os.Getenv("DREDGE_PASSWORD"); password != "" {
+		Debugf("Password provided via --password/DREDGE_PASSWORD")
+		if crypto.PasswordVerificationExists() {
+			key, err := crypto.DeriveKeyFromVault(password)
+			if err != nil {
+				return fmt.Errorf("wrong password")
+			}
+			if err := crypto.CacheKey(key); err != nil {
+				return fmt.Errorf("failed to cache key: %w", err)
+			}
+			Debugf("Key derived and cached from --password/DREDGE_PASSWORD")
+			isNewSession = true
+		} else {
+			// First-time vault — store pending, GetKeyWithVerification will use it
+			crypto.SetPendingPassword(password)
+			Debugf("Stored pending password for first-time vault setup")
+			isNewSession = true
+		}
+	}
+
+	// Commands that don't need vault access
+	passiveCommands := map[string]bool{
+		"help": true, "h": true,
+		"update": true, "up": true,
+		"init": true, "use": true,
+		"lock": true,
+	}
+
+	isPassiveCommand := passiveCommands[commandName]
+
+	// Run self-healing on new session (skip for passive commands — no vault access needed)
+	if isNewSession && !isPassiveCommand {
+		selfheal.Run()
+	}
+
+	// Ensure vault is initialized
+	if !devMode && !isPassiveCommand {
+		if err := commands.EnsureInitialized(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ============================================================================
+// Main Router - Simple switch-based command dispatch
+// ============================================================================
+
 func main() {
-	app := &cli.App{
-		Name:  "dredge",
-		Usage: "Encrypted storage for secrets, credentials, and config files",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "password",
-				Aliases: []string{"p"},
-				Usage:   "Password for decryption (skips prompt)",
-				EnvVars: []string{"DREDGE_PASSWORD"},
-			},
-			&cli.StringFlag{
-				Name:    "vault",
-				Usage:   "Vault directory to use for this command (does not persist)",
-				EnvVars: []string{"DREDGE_VAULT"},
-			},
-			&cli.BoolFlag{
-				Name:        "debug",
-				Usage:       "Enable debug output",
-				Destination: &debugMode,
-			},
-			&cli.BoolFlag{
-				Name:        "lets-go-gambling",
-				Aliases:     []string{"l"},
-				Usage:       "Resolve query to top search result and pass to command",
-				Destination: &luckMode,
-			},
-			&cli.BoolFlag{
-				Name:        "dev",
-				Usage:       "Skip git repo check (for local testing without a remote)",
-				Destination: &devMode,
-			},
-			&cli.BoolFlag{
-				Name:        "no-lock",
-				Usage:       "Disable session timeout for this command",
-				Destination: &noLock,
-			},
-		},
-		Commands: []*cli.Command{
-			{
-				Name:                   "add",
-				Aliases:                []string{"a", "new", "+"},
-				Usage:                  "Add a new item",
-				SkipFlagParsing:        true,
-				UseShortOptionHandling: false,
-				Action: func(c *cli.Context) error {
-					// Manual arg parsing handles all flags (-t, -c, --file)
-					// We pass all args and let HandleAdd parse them
-					return commands.HandleAdd(c.Args().Slice(), "")
-				},
-			},
-			{
-				Name:    "search",
-				Aliases: []string{"s"},
-				Usage:   "Search for items",
-				Action: func(c *cli.Context) error {
-					query := strings.Join(c.Args().Slice(), " ")
-					return commands.HandleSearch(query, luckMode)
-				},
-			},
-			{
-				Name:    "list",
-				Aliases: []string{"ls"},
-				Usage:   "List all items",
-				Action: func(c *cli.Context) error {
-					return commands.HandleList(c.Args().Slice())
-				},
-			},
-			{
-				Name:    "view",
-				Aliases: []string{"v"},
-				Usage:   "View an item by ID",
-				Flags: []cli.Flag{
-					&cli.BoolFlag{Name: "raw", Aliases: []string{"r"}, Usage: "Output raw content only"},
-				},
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleView(args, c.Bool("raw"))
-				},
-			},
-			{
-				Name:    "cat",
-				Aliases: []string{"c"},
-				Usage:   "Output raw item content (for piping)",
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleCat(args)
-				},
-			},
-			{
-				Name:                   "edit",
-				Aliases:                []string{"e"},
-				Usage:                  "Edit an item",
-				SkipFlagParsing:        true,
-				UseShortOptionHandling: false,
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleEdit(args)
-				},
-			},
-			{
-				Name:  "rm",
-				Usage: "Remove an item",
-				Action: func(c *cli.Context) error {
-					args := c.Args().Slice()
-					if luckMode {
-						id, err := commands.SearchTopResult(strings.Join(args, " "))
-						if err != nil {
-							return err
-						}
-						args = []string{id}
-					}
-					return commands.HandleRemove(args)
-				},
-			},
-			{
-				Name:  "undo",
-				Usage: "Restore last deleted item",
-				Action: func(c *cli.Context) error {
-					return commands.HandleUndo(c.Args().Slice())
-				},
-			},
-			{
-				Name:    "mv",
-				Aliases: []string{"rename", "rn"},
-				Usage:   "Rename an item ID",
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleMove(args)
-				},
-			},
-			{
-				Name:                   "link",
-				Aliases:                []string{"ln"},
-				Usage:                  "Link an item to a system path",
-				SkipFlagParsing:        true,
-				UseShortOptionHandling: false,
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleLink(args)
-				},
-			},
-			{
-				Name:  "unlink",
-				Usage: "Unlink an item from system path",
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleUnlink(args)
-				},
-			},
-			{
-				Name:    "copy",
-				Aliases: []string{"cp"},
-				Usage:   "Copy item content to clipboard",
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleCopy(args)
-				},
-			},
-			{
-				Name:  "export",
-				Usage: "Export a binary item to filesystem",
-				Action: func(c *cli.Context) error {
-					args, err := resolveLucky(c.Args().Slice())
-					if err != nil {
-						return err
-					}
-					return commands.HandleExport(args)
-				},
-			},
-			{
-				Name:    "init",
-				Aliases: []string{"use"},
-				Usage:   "Initialize or activate a vault at the given path (default: current dir)",
-				Action: func(c *cli.Context) error {
-					return commands.HandleInit(c.Args().Slice())
-				},
-			},
-			{
-				Name:  "remote",
-				Usage: "Wire a git remote to the active vault",
-				Action: func(c *cli.Context) error {
-					return commands.HandleRemote(c.Args().Slice())
-				},
-			},
-			{
-				Name:  "push",
-				Usage: "Push changes to remote",
-				Action: func(c *cli.Context) error {
-					return commands.HandlePush(c.Args().Slice())
-				},
-			},
-			{
-				Name:  "pull",
-				Usage: "Pull changes from remote",
-				Action: func(c *cli.Context) error {
-					return commands.HandlePull(c.Args().Slice())
-				},
-			},
-			{
-				Name:  "sync",
-				Usage: "Sync with remote (pull + push)",
-				Action: func(c *cli.Context) error {
-					return commands.HandleSync(c.Args().Slice())
-				},
-			},
-			{
-				Name:  "status",
-				Usage: "Show pending changes",
-				Action: func(c *cli.Context) error {
-					return commands.HandleStatus(c.Args().Slice())
-				},
-			},
-			{
-				Name:  "lock",
-				Usage: "Lock the vault (clears cached session key)",
-				Action: func(c *cli.Context) error {
-					return commands.HandleLock()
-				},
-			},
-			{
-				Name:  "passwd",
-				Usage: "Change vault password",
-				Action: func(c *cli.Context) error {
-					return commands.HandlePasswd()
-				},
-			},
-			{
-				Name:    "update",
-				Aliases: []string{"up"},
-				Usage:   "Update dredge to the latest version",
-				Action: func(c *cli.Context) error {
-					return commands.HandleUpdate(version, githubRepo)
-				},
-			},
-			{
-				Name:    "help",
-				Aliases: []string{"h"},
-				Usage:   "Show help",
-				Action: func(c *cli.Context) error {
-					return commands.HandleHelp(c.Args().Slice())
-				},
-			},
-		},
-		Before: func(c *cli.Context) error {
-			// If --vault/DREDGE_VAULT is set, override for this invocation only
-			if v := strings.TrimSpace(c.String("vault")); v != "" {
-				abs, err := filepath.Abs(v)
-				if err != nil {
-					return fmt.Errorf("failed to resolve vault path: %w", err)
+	// Extract global flags from anywhere in args
+	args := extractGlobalFlags(os.Args[1:])
+
+	// No args = show help
+	if len(args) == 0 {
+		if err := commands.HandleHelp(nil); err != nil {
+			die(err)
+		}
+		return
+	}
+
+	cmd := args[0]
+	cmdArgs := args[1:]
+
+	// Route to command handlers
+	var err error
+
+	switch cmd {
+	// Add
+	case "add", "a", "new", "+":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandleAdd(cmdArgs, "")
+
+	// Search
+	case "search", "s":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		query := strings.Join(cmdArgs, " ")
+		err = commands.HandleSearch(query, luckMode)
+
+	// List
+	case "list", "ls":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandleList(cmdArgs)
+
+	// View
+	case "view", "v":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		rawMode := hasFlag(cmdArgs, "--raw", "-r")
+		cmdArgs = removeFlags(cmdArgs, "--raw", "-r")
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleView(cmdArgs, rawMode)
+
+	// Cat
+	case "cat", "c":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleCat(cmdArgs)
+
+	// Edit
+	case "edit", "e":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleEdit(cmdArgs)
+
+	// Remove
+	case "rm":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if luckMode {
+			id, searchErr := commands.SearchTopResult(strings.Join(cmdArgs, " "))
+			if searchErr != nil {
+				die(searchErr)
+			}
+			cmdArgs = []string{id}
+		}
+		err = commands.HandleRemove(cmdArgs)
+
+	// Undo
+	case "undo":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandleUndo(cmdArgs)
+
+	// Move/Rename
+	case "mv", "rename", "rn":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleMove(cmdArgs)
+
+	// Link
+	case "link", "ln":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleLink(cmdArgs)
+
+	// Unlink
+	case "unlink":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleUnlink(cmdArgs)
+
+	// Copy
+	case "copy", "cp":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleCopy(cmdArgs)
+
+	// Export
+	case "export":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		if cmdArgs, err = resolveLucky(cmdArgs); err != nil {
+			die(err)
+		}
+		err = commands.HandleExport(cmdArgs)
+
+	// Init
+	case "init", "use":
+		err = commands.HandleInit(cmdArgs)
+
+	// Git commands
+	case "remote":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandleRemote(cmdArgs)
+
+	case "push":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandlePush(cmdArgs)
+
+	case "pull":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandlePull(cmdArgs)
+
+	case "sync":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandleSync(cmdArgs)
+
+	case "status":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandleStatus(cmdArgs)
+
+	// Lock
+	case "lock":
+		err = commands.HandleLock()
+
+	// Passwd
+	case "passwd":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandlePasswd()
+
+	// Update
+	case "update", "up":
+		err = commands.HandleUpdate(version, githubRepo)
+
+	// Help
+	case "help", "h":
+		err = commands.HandleHelp(cmdArgs)
+
+	// Default: Smart query routing (numeric → cache, ID → view, else → search)
+	default:
+		if err = runBefore(""); err != nil {
+			die(err)
+		}
+
+		// Restore full args for smart routing (includes what looked like a command)
+		fullArgs := append([]string{cmd}, cmdArgs...)
+
+		// Try as numbered result first (if single numeric arg)
+		if len(fullArgs) == 1 {
+			if num, parseErr := strconv.Atoi(fullArgs[0]); parseErr == nil && num > 0 {
+				if id, cacheErr := session.GetCachedResult(num); cacheErr == nil {
+					err = commands.HandleView([]string{id}, false)
+					break
 				}
-				Debugf("Vault override: %s (via --vault or DREDGE_VAULT)", abs)
-				storage.SetVaultOverride(abs)
-				session.SetVaultPath(abs)
-			} else if vaultDir, err := storage.GetDredgeDir(); err == nil {
-				Debugf("Vault path from registry: %s", vaultDir)
-				session.SetVaultPath(vaultDir)
+				// If cache miss, fall through to try as ID/search
+			}
+
+			// Try as direct ID
+			if viewErr := commands.HandleView([]string{fullArgs[0]}, false); viewErr == nil {
+				return // Success
 			} else {
-				Debugf("Failed to get vault directory: %v", err)
+				Debugf("HandleView failed, falling back to search: %v", viewErr)
 			}
+		}
 
-			// Set debug mode for crypto package
-			crypto.DebugMode = debugMode
-			crypto.NoLock = noLock
-
-			// Check if this is a new session (no cached password)
-			isNewSession := !crypto.HasActiveSession()
-
-			// If password provided via --password flag or DREDGE_PASSWORD env var,
-			// verify immediately and hard-error on failure — never fall back to prompt.
-			// If vault doesn't exist yet, store as pending (used once by GetKeyWithVerification).
-			if password := c.String("password"); password != "" {
-				Debugf("Password provided via --password/DREDGE_PASSWORD")
-				if crypto.PasswordVerificationExists() {
-					key, err := crypto.DeriveKeyFromVault(password)
-					if err != nil {
-						return fmt.Errorf("wrong password")
-					}
-					if err := crypto.CacheKey(key); err != nil {
-						return fmt.Errorf("failed to cache key: %w", err)
-					}
-					Debugf("Key derived and cached from --password/DREDGE_PASSWORD")
-					isNewSession = true
-				} else {
-					// First-time vault — store pending, GetKeyWithVerification will use it
-					crypto.SetPendingPassword(password)
-					Debugf("Stored pending password for first-time vault setup")
-					isNewSession = true
-				}
-			}
-
-			// Determine the subcommand (empty string means no args → show help)
-			sub := c.Args().First()
-
-			// Commands that don't need vault access
-			passiveCommands := []string{"", "help", "h", "update", "up", "init", "use", "lock"}
-
-			contains := func(list []string, s string) bool {
-				for _, v := range list {
-					if v == s {
-						return true
-					}
-				}
-				return false
-			}
-
-			isPassiveCommand := contains(passiveCommands, sub)
-
-			// Run self-healing on new session (skip for passive commands — no vault access needed)
-			if isNewSession && !isPassiveCommand {
-				selfheal.Run()
-			}
-
-			// Ensure vault is initialized
-			if !devMode && !isPassiveCommand {
-				if err := commands.EnsureInitialized(); err != nil {
-					return err
-				}
-			}
-
-			return nil
-		},
-		Action: func(c *cli.Context) error {
-			// Default action: smart query routing
-			// Handles: dredge 1, dredge <id>, dredge <search-query>
-			if c.NArg() == 0 {
-				return commands.HandleHelp(nil)
-			}
-
-			args := c.Args().Slice()
-			firstArg := args[0]
-
-			// Try as numbered result first (if single numeric arg)
-			if len(args) == 1 {
-				if num, err := strconv.Atoi(firstArg); err == nil && num > 0 {
-					if id, cacheErr := session.GetCachedResult(num); cacheErr == nil {
-						return commands.HandleView([]string{id})
-					}
-					// If cache miss, fall through to try as ID/search
-				}
-
-				// Try as direct ID
-				if viewErr := commands.HandleView([]string{firstArg}); viewErr == nil {
-					return nil
-				} else {
-					Debugf("HandleView failed, falling back to search: %v", viewErr)
-				}
-			}
-
-			// Fall back to search
-			query := strings.Join(args, " ")
-			return commands.HandleSearch(query, luckMode)
-		},
+		// Fall back to search
+		query := strings.Join(fullArgs, " ")
+		err = commands.HandleSearch(query, luckMode)
 	}
 
-	cli.HelpPrinter = func(_ io.Writer, _ string, _ interface{}) {
-		commands.HandleHelp(nil) //nolint
-	}
-
-	// Hoist global flags to before the subcommand so urfave treats them as global flags
-	// regardless of where the user places them (e.g. `dredge cp foo -l`).
-	runArgs := hoistGlobalFlag(os.Args, "-l", "--lets-go-gambling", "--debug")
-
-	if err := app.Run(runArgs); err != nil && err != flag.ErrHelp {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if err != nil {
+		die(err)
 	}
 }
+
+// ============================================================================
+// Utilities
+// ============================================================================
 
 func Debugf(format string, args ...any) {
 	if debugMode {
 		fmt.Printf("[DEBUG] "+format+"\n", args...)
 	}
+}
+
+func die(err error) {
+	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	os.Exit(1)
 }
