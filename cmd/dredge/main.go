@@ -401,6 +401,14 @@ func main() {
 		}
 		err = commands.HandleStatus(cmdArgs)
 
+	case "drop":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		dropAll := hasFlag(cmdArgs, "--all")
+		cmdArgs = removeFlags(cmdArgs, "--all")
+		err = commands.HandleDrop(cmdArgs, dropAll)
+
 	// Lock
 	case "lock":
 		err = commands.HandleLock()

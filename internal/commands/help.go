@@ -31,10 +31,11 @@ func HandleHelp(args []string) error {
 		).
 		Section("Sync",
 			gohelp.Item("remote", "Wire a git remote to the active vault", "dredge remote owner/repo"),
-			gohelp.Item("push", "Push changes to remote"),
-			gohelp.Item("pull", "Pull changes from remote"),
+			gohelp.Item("push", "Push changes to remote (auto-commits first)"),
+			gohelp.Item("pull", "Pull changes from remote (auto-commits first)"),
 			gohelp.Item("sync", "Sync with remote (pull + push)"),
 			gohelp.Item("status", "Show pending changes"),
+			gohelp.Item("drop", "Discard uncommitted changes to prioritize remote", "dredge drop <id> OR dredge drop --all"),
 		).
 		Section("Flags",
 			gohelp.Item("--password, -p", "Password for decryption (skips prompt)"),
@@ -84,7 +85,8 @@ func HandleHelp(args []string) error {
 			gohelp.Item("--force, -f", "Overwrite an existing file or symlink at the target path"),
 			gohelp.Item("-p, --parents", "Create parent directories if they don't exist", "dredge link abc ~/.config/app/config.toml -p"),
 		).
-		Text("Only text items can be linked. Use 'dredge unlink <id>' to remove the symlink and spawned copy.")
+		Text("Only text items can be linked. Use 'dredge unlink <id>' to remove the symlink and spawned copy.").
+		Text("Auto-repair: Renamed symlinks are detected and tracked automatically. Deleted symlinks are cleaned up on session start.")
 
 	gohelp.Run(append([]string{"help"}, args...), root, addPage, viewPage, editPage, linkPage)
 	return nil

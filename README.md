@@ -285,6 +285,8 @@ dredge link <id> ~/.ssh/config
 
 This command will make a symlink at `~/.ssh/config` pointing to a plaintext copy dredge manages (the file gets exposed to disk so you can use it). You can edit the file directly or through `dredge edit` or whatever you feel like, all changes sync back to the encrypted store automatically.
 
+**Auto-repair:** If you rename a symlink (e.g., `mv ~/.ssh/config ~/.ssh/config-backup`), dredge detects and tracks the new path automatically. Deleted symlinks are cleaned up on session start.
+
 <div align="center">
 <img src="other/assets/dredge-link-demo.gif" alt="dredge link demo" width="800"/>
 </div>
@@ -322,7 +324,8 @@ This is _actually_ the reason I built dredge. My SSH config is identical on ever
 | `copy` / `cp` | Copy item content to clipboard | `dredge copy xKP` |
 | `lock` | Lock the vault (clears session key) | `dredge lock` |
 | `init` / `use` | Initialize or activate a vault | `dredge init ~/vaults/work` |
-| `push` / `pull` / `sync` | Git sync | `dredge sync` |
+| `push` / `pull` / `sync` | Git sync (auto-commits changes) | `dredge sync` |
+| `drop` | Discard uncommitted changes | `dredge drop xKP` or `dredge drop --all` |
 | `status` | Show pending changes | `dredge status` |
 | `passwd` | Change vault password | `dredge passwd` |
 | `update` | Update to latest version | `dredge update` |
@@ -334,6 +337,8 @@ This is _actually_ the reason I built dredge. My SSH config is identical on ever
 Git sync uses plain `git` and works with any remote (GitHub/GitLab/Gitea/etc).
 
 `dredge init` accepts an optional git remote. If you omit it, dredge initializes a local-only git repo (no remote).
+
+**Auto-commit behavior:** Both `push` and `pull` automatically commit any uncommitted changes before syncing. This prevents "dirty working tree" errors and keeps the git workflow transparent. If you need to discard local changes to prioritize the remote version, use `dredge drop`.
 
 Accepted remote formats:
 

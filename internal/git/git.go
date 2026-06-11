@@ -125,6 +125,22 @@ func Pull(dredgeDir string) error {
 		return fmt.Errorf("no git remote configured - run 'dredge remote <url>' to add a remote")
 	}
 
+	// Auto-commit any uncommitted changes before pulling (symmetry with Push)
+	if err := addTrackedFiles(dredgeDir); err != nil {
+		return err
+	}
+
+	// Check if there are staged changes to commit
+	_, err := runGitCommand(dredgeDir, "diff", "--cached", "--quiet")
+	hasStagedChanges := err != nil // Error means changes exist (--quiet returns exit code 1)
+
+	// If we have staged changes, commit them before pulling
+	if hasStagedChanges {
+		if err := commitChanges(dredgeDir); err != nil {
+			return err
+		}
+	}
+
 	// Get current branch name
 	branch, err := getCurrentBranch(dredgeDir)
 	if err != nil {
@@ -145,6 +161,86 @@ func Pull(dredgeDir string) error {
 	} else {
 		fmt.Println("Pulled latest changes")
 	}
+	return nil
+}
+
+// Drop discards uncommitted changes to specified items, reverting to last commit.
+// If ids is empty, discards all uncommitted changes.
+func Drop(dredgeDir string, ids []string) error {
+	if !isGitRepo(dredgeDir) {
+		return fmt.Errorf("not a git repository")
+	}
+
+	// Get list of items with uncommitted changes
+	output, err := runGitCommand(dredgeDir, "status", "--short", "--", "items/")
+	if err != nil {
+		return fmt.Errorf("failed to check status: %w", err)
+	}
+
+	if strings.TrimSpace(output) == "" {
+		fmt.Println("No uncommitted changes to drop")
+		return nil
+	}
+
+	// Parse changed items
+	changedItems := make(map[string]bool)
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		// Format: " M items/abc" or "?? items/xyz" or "D  items/foo"
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		path := parts[len(parts)-1] // Last field is always the path
+		if strings.HasPrefix(path, "items/") {
+			id := strings.TrimPrefix(path, "items/")
+			changedItems[id] = true
+		}
+	}
+
+	// Determine what to drop
+	toDrop := []string{}
+	if len(ids) == 0 {
+		// Drop all
+		for id := range changedItems {
+			toDrop = append(toDrop, id)
+		}
+	} else {
+		// Drop specified IDs
+		for _, id := range ids {
+			if !changedItems[id] {
+				return fmt.Errorf("item [%s] has no uncommitted changes", id)
+			}
+			toDrop = append(toDrop, id)
+		}
+	}
+
+	if len(toDrop) == 0 {
+		fmt.Println("No items to drop")
+		return nil
+	}
+
+	// Revert each item
+	for _, id := range toDrop {
+		itemPath := filepath.Join("items", id)
+		if _, err := runGitCommand(dredgeDir, "checkout", "HEAD", "--", itemPath); err != nil {
+			// If checkout fails, item might be untracked (newly added)
+			// In that case, just remove it
+			if _, rmErr := runGitCommand(dredgeDir, "rm", "-f", itemPath); rmErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to drop [%s]: %v\n", id, err)
+				continue
+			}
+		}
+		fmt.Printf("Dropped [%s]\n", id)
+	}
+
+	// Clean index to remove any staged changes
+	if _, err := runGitCommand(dredgeDir, "reset", "HEAD", "--", "items/"); err != nil {
+		// Ignore error, just best-effort cleanup
+	}
+
 	return nil
 }
 
