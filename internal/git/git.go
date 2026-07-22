@@ -159,7 +159,14 @@ func Pull(dredgeDir string) error {
 	if strings.Contains(output, "Already up to date") {
 		fmt.Println("Already up to date")
 	} else {
-		fmt.Println("Pulled latest changes")
+		// Show what changed during pull
+		changes, err := getChangedItemsBetweenCommits(dredgeDir, "ORIG_HEAD", "HEAD")
+		if err == nil && (len(changes["add"]) > 0 || len(changes["upd"]) > 0 || len(changes["del"]) > 0) {
+			fmt.Println()
+			printColoredChanges(changes)
+		} else {
+			fmt.Println("Pulled latest changes")
+		}
 	}
 	return nil
 }
@@ -441,6 +448,55 @@ func isGitRepo(dir string) bool {
 func getChangedItemsWithActions(dir string) (map[string][]string, error) {
 	// Get changed files with status: A (added), M (modified), D (deleted)
 	output, err := runGitCommand(dir, "diff", "--name-status", "--cached", "items/")
+	if err != nil {
+		return nil, err
+	}
+
+	changes := map[string][]string{
+		"add": {},
+		"upd": {},
+		"del": {},
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		// Format: "A\titems/xKP" or "M\titems/gMn" or "D\titems/old"
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+
+		action := parts[0]
+		path := parts[1]
+
+		// Extract ID from path: items/xKP -> xKP
+		pathParts := strings.Split(path, "/")
+		if len(pathParts) < 2 {
+			continue
+		}
+		id := pathParts[1]
+
+		// Map git status to our format
+		switch action {
+		case "A":
+			changes["add"] = append(changes["add"], id)
+		case "M":
+			changes["upd"] = append(changes["upd"], id)
+		case "D":
+			changes["del"] = append(changes["del"], id)
+		}
+	}
+
+	return changes, nil
+}
+
+// getChangedItemsBetweenCommits returns a map of action -> IDs for items changed between two git refs
+func getChangedItemsBetweenCommits(dir, fromRef, toRef string) (map[string][]string, error) {
+	// Get changed files with status: A (added), M (modified), D (deleted)
+	output, err := runGitCommand(dir, "diff", "--name-status", fromRef+".."+toRef, "--", "items/")
 	if err != nil {
 		return nil, err
 	}
