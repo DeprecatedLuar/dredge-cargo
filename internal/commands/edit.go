@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -57,9 +58,13 @@ func HandleEdit(args []string) error {
 		return fmt.Errorf("failed to read item [%s]: %w", id, err)
 	}
 
-	updatedItem, err := editor.OpenForExisting(item)
+	updatedItem, changed, err := editor.OpenForExisting(item)
 	if err != nil {
 		return fmt.Errorf("failed to edit item: %w", err)
+	}
+	if !changed {
+		fmt.Printf("→ [%s] %s (no changes)\n", id, item.Title)
+		return nil
 	}
 
 	if err := storage.UpdateItem(id, updatedItem, key); err != nil {
@@ -139,6 +144,15 @@ type = %q`,
 		return fmt.Errorf("type must be 'text' or 'binary'")
 	}
 
+	if metadata.Title == item.Title &&
+		slices.Equal(metadata.Tags, item.Tags) &&
+		metadata.Type == item.Type &&
+		metadata.Filename == item.Filename &&
+		modeEqual(parsedMode, item.Mode) {
+		fmt.Printf("→ [%s] %s (no changes)\n", id, item.Title)
+		return nil
+	}
+
 	// Update item with new metadata (timestamps auto-managed)
 	// Note: size preserved from original (computed, not editable)
 	item.Title = metadata.Title
@@ -155,6 +169,14 @@ type = %q`,
 
 	fmt.Printf("✓ [%s] %s (metadata)\n", id, item.Title)
 	return nil
+}
+
+// modeEqual reports whether two optional file-mode pointers represent the same value.
+func modeEqual(a, b *uint32) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // formatTags formats tags array for TOML

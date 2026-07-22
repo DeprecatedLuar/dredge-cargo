@@ -2,6 +2,8 @@ package editor
 
 import (
 	"testing"
+
+	"github.com/DeprecatedLuar/dredge-cargo/internal/storage"
 )
 
 func TestParseTemplate(t *testing.T) {
@@ -164,6 +166,69 @@ func TestParseTitleAndTags(t *testing.T) {
 				if tag != tt.wantTags[i] {
 					t.Errorf("parseTitleAndTags() tag[%d] = %q, want %q", i, tag, tt.wantTags[i])
 				}
+			}
+		})
+	}
+}
+
+func TestItemChanged(t *testing.T) {
+	original := &storage.Item{
+		Title: "my title",
+		Tags:  []string{"tag1", "tag2"},
+		Content: storage.ItemContent{
+			Text: "line one\nline two",
+		},
+	}
+
+	tests := []struct {
+		name    string
+		title   string
+		content string
+		tags    []string
+		want    bool
+	}{
+		{
+			name:    "identical fields",
+			title:   "my title",
+			content: "line one\nline two",
+			tags:    []string{"tag1", "tag2"},
+			want:    false,
+		},
+		{
+			name:    "content differs only by trailing newline",
+			title:   "my title",
+			content: "line one\nline two\n",
+			tags:    []string{"tag1", "tag2"},
+			want:    false,
+		},
+		{
+			name:    "title changed",
+			title:   "new title",
+			content: "line one\nline two",
+			tags:    []string{"tag1", "tag2"},
+			want:    true,
+		},
+		{
+			name:    "tags reordered",
+			title:   "my title",
+			content: "line one\nline two",
+			tags:    []string{"tag2", "tag1"},
+			want:    true,
+		},
+		{
+			name:    "content changed",
+			title:   "my title",
+			content: "line one\nline three",
+			tags:    []string{"tag1", "tag2"},
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := itemChanged(original, tt.title, tt.content, tt.tags)
+			if got != tt.want {
+				t.Errorf("itemChanged() = %v, want %v", got, tt.want)
 			}
 		})
 	}

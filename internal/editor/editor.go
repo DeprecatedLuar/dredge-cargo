@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -46,8 +47,10 @@ func OpenForNewItem(title string, tags []string) (*storage.Item, error) {
 	return item, nil
 }
 
-// OpenForExisting opens editor with existing item, returns updated Item
-func OpenForExisting(item *storage.Item) (*storage.Item, error) {
+// OpenForExisting opens editor with existing item, returns updated Item.
+// The second return value is false if the user saved without changing
+// title, content, or tags — callers should skip persisting in that case.
+func OpenForExisting(item *storage.Item) (*storage.Item, bool, error) {
 	// Create template from existing item
 	templateContent := createTemplate(item.Title, item.Tags, item.Content.Text)
 
@@ -59,17 +62,21 @@ func OpenForExisting(item *storage.Item) (*storage.Item, error) {
 	// Open editor and get edited content
 	editedContent, err := openEditor(templateContent, suffix)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// Parse template back to values
 	parsedTitle, parsedContent, parsedTags, err := parseTemplate(editedContent)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if parsedTitle == "" {
-		return nil, fmt.Errorf("title cannot be empty")
+		return nil, false, fmt.Errorf("title cannot be empty")
+	}
+
+	if !itemChanged(item, parsedTitle, parsedContent, parsedTags) {
+		return nil, false, nil
 	}
 
 	// Create updated item, preserving metadata
@@ -85,7 +92,21 @@ func OpenForExisting(item *storage.Item) (*storage.Item, error) {
 		},
 	}
 
-	return updated, nil
+	return updated, true, nil
+}
+
+// itemChanged reports whether parsed post-edit fields differ from the original item.
+// Trailing newlines are trimmed from content before comparing, since some editors
+// (e.g. vim with fixeol) silently append a trailing newline on save even when the
+// user changed nothing.
+func itemChanged(original *storage.Item, title, content string, tags []string) bool {
+	if title != original.Title {
+		return true
+	}
+	if strings.TrimRight(content, "\n") != strings.TrimRight(original.Content.Text, "\n") {
+		return true
+	}
+	return !slices.Equal(tags, original.Tags)
 }
 
 // createTemplate creates the simple template format:
