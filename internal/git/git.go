@@ -125,6 +125,14 @@ func Pull(dredgeDir string) error {
 		return fmt.Errorf("no git remote configured - run 'dredge remote <url>' to add a remote")
 	}
 
+	// Recover from a rebase left mid-flight by a prior interrupted pull
+	// (killed process, closed terminal, network drop). The commit that
+	// triggered it is already safe in local history, so aborting just
+	// discards the stuck replay attempt and lets us retry cleanly.
+	if isRebaseInProgress(dredgeDir) {
+		runGitCommand(dredgeDir, "rebase", "--abort")
+	}
+
 	// Auto-commit any uncommitted changes before pulling (symmetry with Push)
 	if err := addTrackedFiles(dredgeDir); err != nil {
 		return err
@@ -442,6 +450,17 @@ func isGitRepo(dir string) bool {
 	gitDir := filepath.Join(dir, ".git")
 	info, err := os.Stat(gitDir)
 	return err == nil && info.IsDir()
+}
+
+// isRebaseInProgress checks for leftover rebase state from an interrupted pull
+func isRebaseInProgress(dir string) bool {
+	gitDir := filepath.Join(dir, ".git")
+	for _, name := range []string{"rebase-merge", "rebase-apply"} {
+		if info, err := os.Stat(filepath.Join(gitDir, name)); err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // getChangedItemsWithActions returns a map of action -> IDs
