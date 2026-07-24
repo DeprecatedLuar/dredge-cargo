@@ -147,6 +147,8 @@ func resolveLucky(args []string) ([]string, error) {
 // ============================================================================
 
 func runBefore(commandName string) error {
+	isHistoryCommand := commandName == "history"
+
 	// If --vault/DREDGE_VAULT is set, override for this invocation only
 	if v := strings.TrimSpace(os.Getenv("DREDGE_VAULT")); v != "" {
 		abs, err := filepath.Abs(v)
@@ -163,33 +165,36 @@ func runBefore(commandName string) error {
 		Debugf("Failed to get vault directory: %v", err)
 	}
 
-	// Set debug mode for crypto package
-	crypto.DebugMode = debugMode
-	crypto.NoLock = noLock
+	isNewSession := false
+	if !isHistoryCommand {
+		// Set debug mode for crypto package
+		crypto.DebugMode = debugMode
+		crypto.NoLock = noLock
 
-	// Check if this is a new session (no cached password)
-	isNewSession := !crypto.HasActiveSession()
+		// Check if this is a new session (no cached password)
+		isNewSession = !crypto.HasActiveSession()
 
-	// If password provided via --password flag or DREDGE_PASSWORD env var,
-	// verify immediately and hard-error on failure — never fall back to prompt.
-	// If vault doesn't exist yet, store as pending (used once by GetKeyWithVerification).
-	if password := os.Getenv("DREDGE_PASSWORD"); password != "" {
-		Debugf("Password provided via --password/DREDGE_PASSWORD")
-		if crypto.PasswordVerificationExists() {
-			key, err := crypto.DeriveKeyFromVault(password)
-			if err != nil {
-				return fmt.Errorf("wrong password")
+		// If password provided via --password flag or DREDGE_PASSWORD env var,
+		// verify immediately and hard-error on failure — never fall back to prompt.
+		// If vault doesn't exist yet, store as pending (used once by GetKeyWithVerification).
+		if password := os.Getenv("DREDGE_PASSWORD"); password != "" {
+			Debugf("Password provided via --password/DREDGE_PASSWORD")
+			if crypto.PasswordVerificationExists() {
+				key, err := crypto.DeriveKeyFromVault(password)
+				if err != nil {
+					return fmt.Errorf("wrong password")
+				}
+				if err := crypto.CacheKey(key); err != nil {
+					return fmt.Errorf("failed to cache key: %w", err)
+				}
+				Debugf("Key derived and cached from --password/DREDGE_PASSWORD")
+				isNewSession = true
+			} else {
+				// First-time vault — store pending, GetKeyWithVerification will use it
+				crypto.SetPendingPassword(password)
+				Debugf("Stored pending password for first-time vault setup")
+				isNewSession = true
 			}
-			if err := crypto.CacheKey(key); err != nil {
-				return fmt.Errorf("failed to cache key: %w", err)
-			}
-			Debugf("Key derived and cached from --password/DREDGE_PASSWORD")
-			isNewSession = true
-		} else {
-			// First-time vault — store pending, GetKeyWithVerification will use it
-			crypto.SetPendingPassword(password)
-			Debugf("Stored pending password for first-time vault setup")
-			isNewSession = true
 		}
 	}
 
@@ -203,16 +208,26 @@ func runBefore(commandName string) error {
 
 	isPassiveCommand := passiveCommands[commandName]
 
-	// Run self-healing on new session (skip for passive commands — no vault access needed)
-	if isNewSession && !isPassiveCommand {
-		selfheal.Run()
-	}
-
 	// Ensure vault is initialized
 	if !devMode && !isPassiveCommand {
 		if err := commands.EnsureInitialized(); err != nil {
 			return err
 		}
+	}
+
+	if !isPassiveCommand {
+		vaultDir, err := storage.GetDredgeDir()
+		if err != nil {
+			return err
+		}
+		if err := selfheal.PrepareVault(vaultDir); err != nil {
+			return err
+		}
+	}
+
+	// Run cleanup and link repair once per session.
+	if isNewSession && !isPassiveCommand && !isHistoryCommand {
+		selfheal.Run()
 	}
 
 	return nil
@@ -400,6 +415,12 @@ func main() {
 			die(err)
 		}
 		err = commands.HandleStatus(cmdArgs)
+
+	case "history":
+		if err = runBefore(cmd); err != nil {
+			die(err)
+		}
+		err = commands.HandleHistory(cmdArgs)
 
 	case "drop":
 		if err = runBefore(cmd); err != nil {

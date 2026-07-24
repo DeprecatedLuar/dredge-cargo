@@ -1,6 +1,7 @@
 package git
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -9,12 +10,20 @@ import (
 	"time"
 )
 
-// Constants
 const (
-	GitIgnoreContent = `spawned/
-links.json
-`
+	gitIgnoreFileName      = ".gitignore"
+	dredgeKeyFileName      = ".dredge-key"
+	dredgeConfigPath       = ".dredge/config.toml"
+	defaultDirPermissions  = 0700
+	defaultFilePermissions = 0644
+	atomicTempFilePattern  = ".*.tmp"
+	negationRulePrefix     = "!"
 )
+
+//go:embed default.gitignore
+var requiredGitIgnore []byte
+
+var requiredGitIgnoreRules = parseGitIgnoreRules(requiredGitIgnore)
 
 // Init initializes a git repository for dredge and optionally connects a remote.
 //
@@ -28,6 +37,10 @@ func Init(dredgeDir, remote string) error {
 
 	normalizedRemote, err := normalizeRemote(remote)
 	if err != nil {
+		return err
+	}
+
+	if err := EnsureGitIgnore(dredgeDir); err != nil {
 		return err
 	}
 
@@ -53,12 +66,6 @@ func Init(dredgeDir, remote string) error {
 
 	// Not a git repo, initialize
 	if err := initRepo(dredgeDir); err != nil {
-		return err
-	}
-
-	// Ensure .gitignore contains our entries
-	gitignorePath := filepath.Join(dredgeDir, ".gitignore")
-	if err := ensureGitIgnore(gitignorePath, GitIgnoreContent); err != nil {
 		return err
 	}
 
@@ -286,17 +293,46 @@ func Status(dredgeDir string) error {
 
 	// Check if there are any changes
 	totalChanges := len(changes["add"]) + len(changes["upd"]) + len(changes["del"])
-	if totalChanges == 0 {
+	vaultFiles, err := getChangedVaultFiles(dredgeDir)
+	if err != nil {
+		return fmt.Errorf("failed to detect changed vault files: %w", err)
+	}
+	if totalChanges == 0 && len(vaultFiles) == 0 {
 		fmt.Println("No changes to push")
 		return nil
 	}
 
 	// Print colored changes
-	printColoredChanges(changes)
+	if totalChanges > 0 {
+		printColoredChanges(changes)
+	}
+	for _, path := range vaultFiles {
+		fmt.Printf("Updated %s\n", path)
+	}
 	if _, ok := getRemoteURL(dredgeDir, "origin"); !ok {
 		fmt.Println("\n(no remote configured - local-only mode)")
 	}
 	return nil
+}
+
+func getChangedVaultFiles(dir string) ([]string, error) {
+	output, err := runGitCommand(
+		dir,
+		"diff",
+		"--cached",
+		"--name-only",
+		"--",
+		gitIgnoreFileName,
+		dredgeKeyFileName,
+		dredgeConfigPath,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(output) == "" {
+		return nil, nil
+	}
+	return strings.Split(strings.TrimSpace(output), "\n"), nil
 }
 
 func commitInitial(dir string) error {
@@ -309,7 +345,7 @@ func commitInitial(dir string) error {
 	return nil
 }
 
-// addTrackedFiles adds items/ and .dredge-key to git staging
+// addTrackedFiles adds the vault's synchronized files to git staging.
 func addTrackedFiles(dir string) error {
 	// Add .gitignore if this is initial setup
 	gitignorePath := filepath.Join(dir, ".gitignore")
@@ -337,6 +373,14 @@ func addTrackedFiles(dir string) error {
 	if _, err := os.Stat(keyFile); err == nil {
 		if _, err := runGitCommand(dir, "add", ".dredge-key"); err != nil {
 			return fmt.Errorf("failed to add .dredge-key: %w", err)
+		}
+	}
+
+	// Add only the synchronized Dredge configuration, never the whole directory.
+	configFile := filepath.Join(dir, filepath.FromSlash(dredgeConfigPath))
+	if _, err := os.Stat(configFile); err == nil {
+		if _, err := runGitCommand(dir, "add", dredgeConfigPath); err != nil {
+			return fmt.Errorf("failed to add vault configuration: %w", err)
 		}
 	}
 
@@ -674,45 +718,101 @@ func initRepo(dir string) error {
 	return nil
 }
 
-func ensureGitIgnore(path string, content string) error {
-	// If missing, create as-is.
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to create .gitignore: %w", err)
-		}
-		return nil
-	}
-
-	// If present, append any missing lines.
+// EnsureGitIgnore creates or repairs the required vault ignore rules without
+// changing unrelated user rules.
+func EnsureGitIgnore(vaultDir string) error {
+	path := filepath.Join(vaultDir, gitIgnoreFileName)
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to read .gitignore: %w", err)
 	}
-	existing := string(data)
+	permissions := os.FileMode(defaultFilePermissions)
+	if info, statErr := os.Stat(path); statErr == nil {
+		permissions = info.Mode().Perm()
+	}
 
-	missing := []string{}
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// match whole-line, simple contains is fine for our small patterns
-		if !strings.Contains(existing, line) {
-			missing = append(missing, line)
+	existingRules := make(map[string]bool)
+	for _, line := range strings.Split(string(data), "\n") {
+		existingRules[strings.TrimSpace(line)] = true
+	}
+	var missing []string
+	firstMissing := len(requiredGitIgnoreRules)
+	for index, rule := range requiredGitIgnoreRules {
+		if !existingRules[rule] {
+			if firstMissing == len(requiredGitIgnoreRules) {
+				firstMissing = index
+			}
+			missing = append(missing, rule)
 		}
 	}
-	if len(missing) == 0 {
+	// Git ignore exceptions are order-sensitive. If the directory rule is
+	// being repaired, repeat later required exceptions after the repaired
+	// rules even when those exceptions already appeared in the user's file.
+	for index := firstMissing + 1; index < len(requiredGitIgnoreRules); index++ {
+		rule := requiredGitIgnoreRules[index]
+		if strings.HasPrefix(rule, negationRulePrefix) && existingRules[rule] {
+			missing = append(missing, rule)
+		}
+	}
+	if err == nil && len(missing) == 0 {
 		return nil
 	}
 
-	toAppend := "\n" + strings.Join(missing, "\n") + "\n"
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open .gitignore: %w", err)
+	var updated []byte
+	if os.IsNotExist(err) {
+		updated = append(updated, requiredGitIgnore...)
+	} else {
+		updated = append(updated, data...)
+		if len(updated) > 0 && updated[len(updated)-1] != '\n' {
+			updated = append(updated, '\n')
+		}
+		if len(updated) > 0 {
+			updated = append(updated, '\n')
+		}
+		updated = append(updated, []byte(strings.Join(missing, "\n"))...)
+		updated = append(updated, '\n')
 	}
-	defer f.Close()
-	if _, err := f.WriteString(toAppend); err != nil {
-		return fmt.Errorf("failed to update .gitignore: %w", err)
+	return atomicWriteFile(path, updated, permissions)
+}
+
+func parseGitIgnoreRules(data []byte) []string {
+	var rules []string
+	for _, line := range strings.Split(string(data), "\n") {
+		if rule := strings.TrimSpace(line); rule != "" {
+			rules = append(rules, rule)
+		}
+	}
+	return rules
+}
+
+func atomicWriteFile(path string, data []byte, permissions os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), defaultDirPermissions); err != nil {
+		return fmt.Errorf("failed to create directory for %s: %w", filepath.Base(path), err)
+	}
+	tempPattern := strings.Replace(atomicTempFilePattern, "*", filepath.Base(path)+"-*", 1)
+	temp, err := os.CreateTemp(filepath.Dir(path), tempPattern)
+	if err != nil {
+		return fmt.Errorf("failed to create %s: %w", filepath.Base(path), err)
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(permissions); err != nil {
+		temp.Close()
+		return fmt.Errorf("failed to set %s permissions: %w", filepath.Base(path), err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return fmt.Errorf("failed to write %s: %w", filepath.Base(path), err)
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return fmt.Errorf("failed to sync %s: %w", filepath.Base(path), err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("failed to close %s: %w", filepath.Base(path), err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("failed to install %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }

@@ -1,6 +1,18 @@
 package selfheal
 
-import "github.com/DeprecatedLuar/dredge-cargo/internal/storage"
+import (
+	"github.com/DeprecatedLuar/dredge-cargo/internal/config"
+	"github.com/DeprecatedLuar/dredge-cargo/internal/git"
+	"github.com/DeprecatedLuar/dredge-cargo/internal/storage"
+)
+
+// PrepareVault enforces required vault configuration on every command.
+func PrepareVault(vaultDir string) error {
+	if err := config.Ensure(vaultDir); err != nil {
+		return err
+	}
+	return git.EnsureGitIgnore(vaultDir)
+}
 
 // Run performs silent health checks and cleanup once per session
 func Run() {

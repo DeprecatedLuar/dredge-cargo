@@ -136,11 +136,6 @@ func TestEnsureDirectories(t *testing.T) {
 		t.Error("spawned directory not created")
 	}
 
-	// Check .gitignore
-	gitignorePath := filepath.Join(dredgeDir, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		t.Error(".gitignore not created")
-	}
 }
 
 func TestCreateAndReadItem(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/DeprecatedLuar/dredge-cargo/internal/crypto"
 	"github.com/DeprecatedLuar/dredge-cargo/internal/git"
+	"github.com/DeprecatedLuar/dredge-cargo/internal/selfheal"
 	"github.com/DeprecatedLuar/dredge-cargo/internal/storage"
 )
 
@@ -36,6 +37,9 @@ func HandleInit(args []string) error {
 
 	// Already a dredge vault — just activate it
 	if isVaultDir(absPath) {
+		if err := selfheal.PrepareVault(absPath); err != nil {
+			return err
+		}
 		_ = crypto.ClearSession()
 		if err := storage.SetActivePath(absPath); err != nil {
 			return fmt.Errorf("failed to set active vault: %w", err)
@@ -73,6 +77,10 @@ func HandleInit(args []string) error {
 
 	if err := storage.EnsureDirectories(); err != nil {
 		return fmt.Errorf("failed to create vault structure: %w", err)
+	}
+
+	if err := selfheal.PrepareVault(absPath); err != nil {
+		return err
 	}
 
 	if err := git.Init(absPath, ""); err != nil {

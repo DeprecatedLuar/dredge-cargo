@@ -35,6 +35,7 @@ func HandleHelp(args []string) error {
 			gohelp.Item("pull", "Pull changes from remote (auto-commits first)"),
 			gohelp.Item("sync", "Sync with remote (pull + push)"),
 			gohelp.Item("status", "Show pending changes"),
+			gohelp.Item("history", "Inspect encrypted item history without a password", "dredge history <id>"),
 			gohelp.Item("drop", "Discard uncommitted changes to prioritize remote", "dredge drop <id> OR dredge drop --all"),
 		).
 		Section("Flags",
@@ -88,6 +89,15 @@ func HandleHelp(args []string) error {
 		Text("Only text items can be linked. Use 'dredge unlink <id>' to remove the symlink and spawned copy.").
 		Text("Auto-repair: Renamed symlinks are detected and tracked automatically. Deleted symlinks are cleaned up on session start.")
 
-	gohelp.Run(append([]string{"help"}, args...), root, addPage, viewPage, editPage, linkPage)
+	historyPage := gohelp.NewPage("history", "Inspect encrypted Git history without decrypting it").
+		Usage("dredge history [list|deleted|<id>]").
+		Section("Commands",
+			gohelp.Item("history, history list", "Summarize all current and historical IDs"),
+			gohelp.Item("history deleted", "List deleted IDs still retained for recovery"),
+			gohelp.Item("history <id>", "List item and storage blob versions with retention decisions"),
+		).
+		Text("History is derived from exact Git paths and object IDs. It never prompts for the vault password.")
+
+	gohelp.Run(append([]string{"help"}, args...), root, addPage, viewPage, editPage, linkPage, historyPage)
 	return nil
 }

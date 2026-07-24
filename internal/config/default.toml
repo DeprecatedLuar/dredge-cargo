@@ -1,0 +1,12 @@
+format = 1
+
+[history.items]
+max_versions = 3
+max_bytes_per_item = "5kb"
+
+[history.storage]
+max_versions = 1
+max_bytes_per_item = "100mb"
+
+[history.deleted]
+retain_for = "30d"

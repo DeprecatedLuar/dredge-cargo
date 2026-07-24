@@ -30,18 +30,13 @@ const (
 	storageDirName = "storage"
 
 	// File names
-	activeFileName    = "active"
-	linksFileName     = "links.json"
-	gitignoreFileName = ".gitignore"
-	itemFileExt       = ""
+	activeFileName = "active"
+	linksFileName  = "links.json"
+	itemFileExt    = ""
 
 	// Permissions
-	dirPermissions       = 0700 // rwx------
-	itemFilePermissions  = 0600 // rw-------
-	gitignorePermissions = 0644 // rw-r--r--
-
-	// Gitignore content
-	gitignoreContent = ".spawned/\nlinks.json\n"
+	dirPermissions      = 0700 // rwx------
+	itemFilePermissions = 0600 // rw-------
 )
 
 var (
@@ -332,13 +327,6 @@ func EnsureDirectories() error {
 	}
 	if err := os.MkdirAll(storageDir, dirPermissions); err != nil {
 		return fmt.Errorf("failed to create storage directory: %w", err)
-	}
-
-	gitignorePath := filepath.Join(dredgeDir, gitignoreFileName)
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		if err := os.WriteFile(gitignorePath, []byte(gitignoreContent), gitignorePermissions); err != nil {
-			return fmt.Errorf("failed to create .gitignore: %w", err)
-		}
 	}
 
 	return nil
