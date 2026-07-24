@@ -1,7 +1,10 @@
 package git
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -18,6 +21,9 @@ func reconcileRemote(dir string) error {
 	}
 
 	if isRebaseInProgress(dir) {
+		if err := removeRedundantUntrackedConfig(dir); err != nil {
+			return fmt.Errorf("failed to prepare interrupted reconciliation recovery: %w", err)
+		}
 		if output, err := runGitCommand(dir, "rebase", "--abort"); err != nil {
 			return fmt.Errorf("failed to recover interrupted reconciliation: %s", strings.TrimSpace(output))
 		}
@@ -80,24 +86,35 @@ func reconcileRemote(dir string) error {
 
 	var output string
 	if rewritten {
-		localOnly, err := commitCount(dir, oldRemote+".."+localHead)
-		if err != nil {
-			return err
+		subsumed, subsumedErr := dredgeChangesSubsumed(dir, oldRemote, localHead, newRemote)
+		if subsumedErr != nil {
+			return subsumedErr
 		}
-		if localOnly == 0 {
+		if subsumed {
 			output, err = runGitCommand(dir, "reset", "--hard", newRemote)
 		} else {
-			overlap, overlapErr := changedPathOverlap(dir, oldRemote, localHead, newRemote)
-			if overlapErr != nil {
-				return overlapErr
+			localOnly, err := commitCount(dir, oldRemote+".."+localHead)
+			if err != nil {
+				return err
 			}
-			if len(overlap) > 0 {
-				return fmt.Errorf(
-					"remote reconciliation stopped because both histories changed %s; both states are recoverable at %s and %s",
-					strings.Join(overlap, ", "), localBackup, remoteRef,
-				)
+			if localOnly == 0 {
+				output, err = runGitCommand(dir, "reset", "--hard", newRemote)
+			} else {
+				overlap, overlapErr := changedPathOverlap(dir, oldRemote, localHead, newRemote)
+				if overlapErr != nil {
+					return overlapErr
+				}
+				if len(overlap) > 0 {
+					return fmt.Errorf(
+						"remote reconciliation stopped because both histories changed %s; both states are recoverable at %s and %s",
+						strings.Join(overlap, ", "), localBackup, remoteRef,
+					)
+				}
+				// oldRemote is the exact boundary captured before fetch. Do not
+				// let rebase.forkPoint expand that explicit commit range using
+				// reflog history after a force-updated remote.
+				output, err = runGitCommand(dir, "rebase", "--no-fork-point", "--onto", newRemote, oldRemote, branch)
 			}
-			output, err = runGitCommand(dir, "rebase", "--onto", newRemote, oldRemote, branch)
 		}
 	} else {
 		output, err = runGitCommand(dir, "rebase", newRemote, branch)
@@ -112,6 +129,76 @@ func reconcileRemote(dir string) error {
 		_, _ = runGitCommand(dir, "update-ref", "-d", ref)
 	}
 	return nil
+}
+
+// dredgeChangesSubsumed recognizes local changes already represented by a
+// rewritten Dredge tree. Generated ignore rules may grow, but all other paths
+// must exist at the same location with identical bytes.
+func dredgeChangesSubsumed(dir, base, localHead, remoteHead string) (bool, error) {
+	output, err := runGitCommand(dir, "diff", "--name-only", base, localHead)
+	if err != nil {
+		return false, fmt.Errorf("failed to inspect local paths: %s", strings.TrimSpace(output))
+	}
+	paths := strings.Fields(output)
+	if len(paths) == 0 {
+		return true, nil
+	}
+	for _, path := range paths {
+		local, localErr := readBlob(dir, localHead, path)
+		if localErr != nil {
+			return false, nil
+		}
+		switch path {
+		case gitIgnoreFileName:
+			remote, remoteErr := readBlob(dir, remoteHead, path)
+			if remoteErr != nil || !lineSetContains(remote, local) {
+				return false, nil
+			}
+		default:
+			remote, remoteErr := readBlob(dir, remoteHead, path)
+			if remoteErr != nil || !bytes.Equal(local, remote) {
+				return false, nil
+			}
+		}
+	}
+	return true, nil
+}
+
+func readBlob(dir, revision, path string) ([]byte, error) {
+	output, err := runGitCommand(dir, "show", revision+":"+path)
+	return []byte(output), err
+}
+
+func lineSetContains(superset, subset []byte) bool {
+	lines := make(map[string]bool)
+	for _, line := range strings.Split(string(superset), "\n") {
+		lines[line] = true
+	}
+	for _, line := range strings.Split(string(subset), "\n") {
+		if line != "" && !lines[line] {
+			return false
+		}
+	}
+	return true
+}
+
+// A failed replay can leave the legacy config untracked while ORIG_HEAD tracks
+// the identical bytes. Removing only that provably redundant copy lets Git
+// restore the original checkout without risking arbitrary untracked files.
+func removeRedundantUntrackedConfig(dir string) error {
+	output, err := runGitCommand(dir, "status", "--porcelain", "--", dredgeConfigPath)
+	if err != nil || strings.TrimSpace(output) != "?? "+dredgeConfigPath {
+		return nil
+	}
+	current, err := os.ReadFile(filepath.Join(dir, dredgeConfigPath))
+	if err != nil {
+		return err
+	}
+	original, err := readBlob(dir, "ORIG_HEAD", dredgeConfigPath)
+	if err != nil || !bytes.Equal(current, original) {
+		return nil
+	}
+	return os.Remove(filepath.Join(dir, dredgeConfigPath))
 }
 
 func commitTrackedChanges(dir string) error {

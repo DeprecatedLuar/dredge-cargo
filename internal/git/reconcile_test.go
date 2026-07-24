@@ -32,6 +32,9 @@ func TestPushAndPullUseCommonReconciliation(t *testing.T) {
 
 func TestPullFollowsRewrittenRemoteWithDirtyAndLocalOnlyWork(t *testing.T) {
 	remote, writer, offline := newReconcileClones(t)
+	// A user's Git configuration must not expand the explicit oldRemote..HEAD
+	// replay boundary after origin is force-updated.
+	gitReconcile(t, offline, "config", "rebase.forkPoint", "true")
 	writeReconcileItem(t, writer, "base", "base")
 	if err := Push(writer); err != nil {
 		t.Fatal(err)
@@ -102,6 +105,75 @@ func TestRewrittenRemoteConflictKeepsBothStatesRecoverable(t *testing.T) {
 	}
 }
 
+func TestRewrittenRemoteAcceptsSubsumedDredgeMetadata(t *testing.T) {
+	_, writer, offline := newReconcileClones(t)
+	config := []byte("format = 1\n")
+
+	if err := os.WriteFile(filepath.Join(offline, dredgeConfigPath), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	appendReconcileFile(t, filepath.Join(offline, gitIgnoreFileName), "shared-rule\n")
+	commitReconcileChanges(t, offline, "local metadata")
+
+	if err := os.WriteFile(filepath.Join(writer, dredgeConfigPath), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	appendReconcileFile(t, filepath.Join(writer, gitIgnoreFileName), "shared-rule\nremote-rule\n")
+	commitReconcileChanges(t, writer, "remote metadata")
+	rewriteReconcileRoot(t, writer)
+	gitReconcile(t, writer, "push", "--force", "origin", currentReconcileBranch(t, writer))
+	remoteHead := strings.TrimSpace(gitReconcile(t, writer, "rev-parse", "HEAD"))
+
+	if err := Pull(offline); err != nil {
+		t.Fatal(err)
+	}
+	if head := strings.TrimSpace(gitReconcile(t, offline, "rev-parse", "HEAD")); head != remoteHead {
+		t.Fatalf("reconciled HEAD = %s, want rewritten remote %s", head, remoteHead)
+	}
+	got, err := os.ReadFile(filepath.Join(offline, dredgeConfigPath))
+	if err != nil || !strings.EqualFold(string(got), string(config)) {
+		t.Fatalf("canonical config was not preserved: %q, %v", got, err)
+	}
+	ignore, err := os.ReadFile(filepath.Join(offline, gitIgnoreFileName))
+	if err != nil || !strings.Contains(string(ignore), "remote-rule\n") {
+		t.Fatalf("remote ignore superset was not preserved: %q, %v", ignore, err)
+	}
+}
+
+func TestRewrittenRemoteDoesNotTreatNestedConfigAsCanonical(t *testing.T) {
+	_, writer, offline := newReconcileClones(t)
+	config := []byte("format = 1\n")
+
+	if err := os.WriteFile(filepath.Join(offline, dredgeConfigPath), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	appendReconcileFile(t, filepath.Join(offline, gitIgnoreFileName), "shared-rule\n")
+	commitReconcileChanges(t, offline, "canonical local metadata")
+	localHead := strings.TrimSpace(gitReconcile(t, offline, "rev-parse", "HEAD"))
+
+	if err := os.MkdirAll(filepath.Join(writer, ".dredge"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(writer, ".dredge", "config.toml"), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	appendReconcileFile(t, filepath.Join(writer, gitIgnoreFileName), "shared-rule\nremote-rule\n")
+	commitReconcileChanges(t, writer, "noncanonical remote metadata")
+	rewriteReconcileRoot(t, writer)
+	gitReconcile(t, writer, "push", "--force", "origin", currentReconcileBranch(t, writer))
+
+	err := Pull(offline)
+	if err == nil || !strings.Contains(err.Error(), gitIgnoreFileName) {
+		t.Fatalf("expected safe metadata overlap stop, got %v", err)
+	}
+	if isRebaseInProgress(offline) {
+		t.Fatal("safe metadata stop unexpectedly started a rebase")
+	}
+	if head := strings.TrimSpace(gitReconcile(t, offline, "rev-parse", "HEAD")); head != localHead {
+		t.Fatalf("safe metadata stop moved HEAD to %s, want %s", head, localHead)
+	}
+}
+
 func TestPullRecoversInterruptedRebaseBeforeReconciliation(t *testing.T) {
 	_, writer, offline := newReconcileClones(t)
 	writeReconcileItem(t, writer, "same", "writer")
@@ -126,6 +198,41 @@ func TestPullRecoversInterruptedRebaseBeforeReconciliation(t *testing.T) {
 	backup := strings.TrimSpace(gitReconcile(t, offline, "rev-parse", reconcileRefNamespace+"/local/"+localHead))
 	if backup != localHead {
 		t.Fatalf("recovered local ref = %s, want %s", backup, localHead)
+	}
+}
+
+func TestRemoveRedundantUntrackedConfigRequiresExactOriginalBytes(t *testing.T) {
+	repo := t.TempDir()
+	configPath := filepath.Join(repo, dredgeConfigPath)
+	gitReconcile(t, repo, "init")
+	configureReconcileRepo(t, repo)
+	if err := os.WriteFile(configPath, []byte("format = 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	commitReconcileChanges(t, repo, "config")
+	original := strings.TrimSpace(gitReconcile(t, repo, "rev-parse", "HEAD"))
+	gitReconcile(t, repo, "rm", dredgeConfigPath)
+	commitReconcileChanges(t, repo, "remove config")
+	gitReconcile(t, repo, "update-ref", "ORIG_HEAD", original)
+
+	if err := os.WriteFile(configPath, []byte("different\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeRedundantUntrackedConfig(repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatal("non-identical untracked config was removed")
+	}
+
+	if err := os.WriteFile(configPath, []byte("format = 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeRedundantUntrackedConfig(repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("redundant untracked config still exists: %v", err)
 	}
 }
 
@@ -162,6 +269,21 @@ func configureReconcileRepo(t *testing.T, dir string) {
 func writeReconcileItem(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "items", name), []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func appendReconcileFile(t *testing.T, path, content string) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := file.WriteString(content); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
