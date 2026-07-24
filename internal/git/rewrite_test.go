@@ -137,7 +137,7 @@ func TestRewriteHistoryInjectedFailuresPreserveRepositoryState(t *testing.T) {
 
 func TestRewriteHistoryRejectsInvalidConfigurationBeforeCreatingBackup(t *testing.T) {
 	vault := newHistoryRepo(t)
-	writeHistoryFile(t, vault, ".dredge/config.toml", "format = 1\n")
+	writeHistoryFile(t, vault, "dredge.toml", "format = 1\n")
 	writeHistoryFile(t, vault, "items/abc", "one")
 	commitHistory(t, vault, "2026-01-01T10:00:00Z", "initial")
 	oldHead := mustGitOutput(t, vault, "rev-parse", "HEAD")
@@ -188,7 +188,7 @@ max_bytes_per_item = "%d"
 [history.deleted]
 retain_for = %q
 `, itemVersions, itemBytes, storageVersions, storageBytes, retainFor)
-	writeHistoryFile(t, vault, ".dredge/config.toml", content)
+	writeHistoryFile(t, vault, "dredge.toml", content)
 }
 
 func historyItemsByID(items []historymodel.Item) map[string]historymodel.Item {

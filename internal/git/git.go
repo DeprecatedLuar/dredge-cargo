@@ -13,11 +13,12 @@ import (
 const (
 	gitIgnoreFileName      = ".gitignore"
 	dredgeKeyFileName      = ".dredge-key"
-	dredgeConfigPath       = ".dredge/config.toml"
+	dredgeConfigPath       = "dredge.toml"
 	defaultDirPermissions  = 0700
 	defaultFilePermissions = 0644
 	atomicTempFilePattern  = ".*.tmp"
 	negationRulePrefix     = "!"
+	reconcileRefNamespace  = "refs/dredge/reconcile"
 )
 
 //go:embed default.gitignore
@@ -94,88 +95,20 @@ func Init(dredgeDir, remote string) error {
 
 // Push commits and pushes changes to remote
 func Push(dredgeDir string) error {
-	if !isGitRepo(dredgeDir) {
-		return fmt.Errorf("not a git repository - run 'dredge remote <url>' to add a remote")
-	}
-
-	if _, ok := getRemoteURL(dredgeDir, "origin"); !ok {
-		return fmt.Errorf("no git remote configured - run 'dredge remote <url>' to add a remote")
-	}
-
-	// Always stage tracked files first
-	if err := addTrackedFiles(dredgeDir); err != nil {
-		return err
-	}
-
-	// Check if there are staged changes to commit
-	_, err := runGitCommand(dredgeDir, "diff", "--cached", "--quiet")
-	hasStagedChanges := err != nil // Error means changes exist (--quiet returns exit code 1)
-
-	// If we have staged changes, commit them
-	if hasStagedChanges {
-		if err := commitChanges(dredgeDir); err != nil {
-			return err
-		}
-	}
-
-	// Now push everything (new commits + any unpushed commits)
-	return pushToRemote(dredgeDir)
+	return outboundSync(dredgeDir)
 }
 
 // Pull pulls latest changes from remote
 func Pull(dredgeDir string) error {
-	if !isGitRepo(dredgeDir) {
-		return fmt.Errorf("not a git repository - run 'dredge remote <url>' to add a remote")
-	}
-
-	if _, ok := getRemoteURL(dredgeDir, "origin"); !ok {
-		return fmt.Errorf("no git remote configured - run 'dredge remote <url>' to add a remote")
-	}
-
-	// Recover from a rebase left mid-flight by a prior interrupted pull
-	// (killed process, closed terminal, network drop). The commit that
-	// triggered it is already safe in local history, so aborting just
-	// discards the stuck replay attempt and lets us retry cleanly.
-	if isRebaseInProgress(dredgeDir) {
-		runGitCommand(dredgeDir, "rebase", "--abort")
-	}
-
-	// Auto-commit any uncommitted changes before pulling (symmetry with Push)
-	if err := addTrackedFiles(dredgeDir); err != nil {
+	oldHead, _ := resolveRef(dredgeDir, "HEAD")
+	if err := reconcileRemote(dredgeDir); err != nil {
 		return err
 	}
-
-	// Check if there are staged changes to commit
-	_, err := runGitCommand(dredgeDir, "diff", "--cached", "--quiet")
-	hasStagedChanges := err != nil // Error means changes exist (--quiet returns exit code 1)
-
-	// If we have staged changes, commit them before pulling
-	if hasStagedChanges {
-		if err := commitChanges(dredgeDir); err != nil {
-			return err
-		}
-	}
-
-	// Get current branch name
-	branch, err := getCurrentBranch(dredgeDir)
-	if err != nil {
-		return fmt.Errorf("failed to get current branch: %w", err)
-	}
-
-	// Pull with rebase
-	output, err := runGitCommand(dredgeDir, "pull", "--rebase", "origin", branch)
-	if err != nil {
-		if strings.Contains(output, "CONFLICT") || strings.Contains(err.Error(), "conflict") {
-			return fmt.Errorf("merge conflicts detected - resolve manually:\n  cd %s\n  git status", dredgeDir)
-		}
-		return fmt.Errorf("failed to pull: %s", strings.TrimSpace(output))
-	}
-
-	if strings.Contains(output, "Already up to date") {
+	newHead, _ := resolveRef(dredgeDir, "HEAD")
+	if oldHead == newHead {
 		fmt.Println("Already up to date")
 	} else {
-		// Show what changed during pull
-		changes, err := getChangedItemsBetweenCommits(dredgeDir, "ORIG_HEAD", "HEAD")
+		changes, err := getChangedItemsBetweenCommits(dredgeDir, oldHead, newHead)
 		if err == nil && (len(changes["add"]) > 0 || len(changes["upd"]) > 0 || len(changes["del"]) > 0) {
 			fmt.Println()
 			printColoredChanges(changes)
@@ -268,10 +201,7 @@ func Drop(dredgeDir string, ids []string) error {
 
 // Sync pulls then pushes (convenience function)
 func Sync(dredgeDir string) error {
-	if err := Pull(dredgeDir); err != nil {
-		return err
-	}
-	return Push(dredgeDir)
+	return outboundSync(dredgeDir)
 }
 
 // Status shows what changes will be pushed
@@ -376,10 +306,10 @@ func addTrackedFiles(dir string) error {
 		}
 	}
 
-	// Add only the synchronized Dredge configuration, never the whole directory.
+	// Add the synchronized Dredge configuration.
 	configFile := filepath.Join(dir, filepath.FromSlash(dredgeConfigPath))
 	if _, err := os.Stat(configFile); err == nil {
-		if _, err := runGitCommand(dir, "add", dredgeConfigPath); err != nil {
+		if _, err := runGitCommand(dir, "add", "--", dredgeConfigPath); err != nil {
 			return fmt.Errorf("failed to add vault configuration: %w", err)
 		}
 	}

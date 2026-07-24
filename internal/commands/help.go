@@ -31,9 +31,9 @@ func HandleHelp(args []string) error {
 		).
 		Section("Sync",
 			gohelp.Item("remote", "Wire a git remote to the active vault", "dredge remote owner/repo"),
-			gohelp.Item("push", "Push changes to remote (auto-commits first)"),
+			gohelp.Item("push", "Reconcile, apply configured retention, and push"),
 			gohelp.Item("pull", "Pull changes from remote (auto-commits first)"),
-			gohelp.Item("sync", "Sync with remote (pull + push)"),
+			gohelp.Item("sync", "Reconcile, apply configured retention, and push"),
 			gohelp.Item("status", "Show pending changes"),
 			gohelp.Item("history", "Inspect encrypted item history without a password", "dredge history <id>"),
 			gohelp.Item("drop", "Discard uncommitted changes to prioritize remote", "dredge drop <id> OR dredge drop --all"),
@@ -98,6 +98,8 @@ func HandleHelp(args []string) error {
 			gohelp.Item("history restore <id>", "Restore the newest retained encrypted item and storage blobs"),
 		).
 		Text("History is derived from exact Git paths and object IDs. It never prompts for the vault password. Restored blobs are left as ordinary uncommitted additions.").
+		Text("Retention is configured in dredge.toml. Item and storage version counts and encrypted-byte limits are independent; deleted IDs remain recoverable for history.deleted.retain_for. Push and sync compact only when the policy removes history. Pull never compacts or force-pushes.").
+		Text("Compaction uses an exact force-with-lease expectation. A concurrent remote update is never overwritten; synchronization stops safely and retains a local recovery reference.").
 		Text("Password rotation limitation: historical blobs are restored byte-for-byte. Blobs created before a password change may not decrypt with the current password; historical re-encryption is not performed.")
 
 	gohelp.Run(append([]string{"help"}, args...), root, addPage, viewPage, editPage, linkPage, historyPage)

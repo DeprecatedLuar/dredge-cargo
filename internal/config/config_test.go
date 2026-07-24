@@ -13,7 +13,7 @@ func TestEnsureCreatesExactDefaultAndIsIdempotent(t *testing.T) {
 	if err := Ensure(vault); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(vault, ".dredge", "config.toml")
+	path := filepath.Join(vault, "dredge.toml")
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -58,10 +58,7 @@ func TestLoadDefault(t *testing.T) {
 
 func TestEnsureRejectsInvalidExistingConfigWithoutReplacingIt(t *testing.T) {
 	vault := t.TempDir()
-	path := filepath.Join(vault, ".dredge", "config.toml")
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		t.Fatal(err)
-	}
+	path := filepath.Join(vault, "dredge.toml")
 	invalid := []byte("format = 1\n")
 	if err := os.WriteFile(path, invalid, 0600); err != nil {
 		t.Fatal(err)
@@ -93,10 +90,7 @@ func TestLoadValidationErrors(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			vault := t.TempDir()
-			path := filepath.Join(vault, ".dredge", "config.toml")
-			if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-				t.Fatal(err)
-			}
+			path := filepath.Join(vault, "dredge.toml")
 			if err := os.WriteFile(path, []byte(tt.config), 0600); err != nil {
 				t.Fatal(err)
 			}

@@ -1,5 +1,2 @@
 .spawned/
 links.json
-
-.dredge/*
-!.dredge/config.toml

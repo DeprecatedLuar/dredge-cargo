@@ -338,7 +338,11 @@ Git sync uses plain `git` and works with any remote (GitHub/GitLab/Gitea/etc).
 
 `dredge init` accepts an optional git remote. If you omit it, dredge initializes a local-only git repo (no remote).
 
-**Auto-commit behavior:** Both `push` and `pull` automatically commit any uncommitted changes before syncing. This prevents "dirty working tree" errors and keeps the git workflow transparent. If you need to discard local changes to prioritize the remote version, use `dredge drop`.
+**Auto-commit behavior:** `push`, `pull`, and `sync` preserve synchronized uncommitted changes in a commit before reconciling with the remote. If you need to discard local changes to prioritize the remote version, use `dredge drop`.
+
+**Automatic history retention:** `push` and `sync` apply the policy in `dredge.toml`. Item metadata and binary storage have independent per-item version and encrypted-byte limits, while `history.deleted.retain_for` controls how long deleted IDs remain recoverable. If the policy removes nothing, Dredge pushes normally. If compaction is needed, Dredge verifies replacement history and uses an exact force-with-lease; a concurrent remote update stops safely instead of being overwritten. `pull` never compacts or force-pushes.
+
+Inspect retained history with `dredge history`, `dredge history deleted`, or `dredge history <id>`. Restore a deleted encrypted item with `dredge history restore <id>`. Password changes do not re-encrypt historical blobs, so restored versions created under an older password may not decrypt with the current password.
 
 Accepted remote formats:
 

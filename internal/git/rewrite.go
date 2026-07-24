@@ -34,6 +34,31 @@ type rewriteEvent struct {
 // recovery at major boundaries.
 var rewriteFailureHook func(string) error
 
+// RetentionNeeded reports whether applying the configured policy would remove
+// at least one distinct encrypted version or an expired deleted item.
+func RetentionNeeded(vaultDir string, now time.Time) (bool, error) {
+	cfg, err := config.Load(vaultDir)
+	if err != nil {
+		return false, err
+	}
+	items, err := ReadHistory(vaultDir)
+	if err != nil {
+		return false, err
+	}
+	policy := retentionPolicy(cfg)
+	for _, item := range items {
+		plan := historymodel.PlanRetention(item, policy, now)
+		if plan.Expired && (len(item.ItemVersions) > 0 || len(item.StorageVersions) > 0) {
+			return true, nil
+		}
+		if distinctBlobCount(item.ItemVersions) > len(plan.ItemVersions) ||
+			distinctBlobCount(item.StorageVersions) > len(plan.StorageVersions) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // RewriteHistory constructs and verifies policy-retained history locally. It
 // never fetches, pushes, prunes objects, or touches the working tree or the
 // user's index.
@@ -70,17 +95,7 @@ func RewriteHistory(vaultDir string, now time.Time) (result RewriteResult, err e
 	for index, commitID := range commits {
 		order[commitID] = index
 	}
-	policy := historymodel.Policy{
-		Items: historymodel.Limits{
-			MaxVersions: cfg.History.Items.MaxVersions,
-			MaxBytes:    cfg.History.Items.MaxBytesPerItem,
-		},
-		Storage: historymodel.Limits{
-			MaxVersions: cfg.History.Storage.MaxVersions,
-			MaxBytes:    cfg.History.Storage.MaxBytesPerItem,
-		},
-		RetainFor: cfg.History.Deleted.RetainFor,
-	}
+	policy := retentionPolicy(cfg)
 	events, err := retentionEvents(items, policy, now, order)
 	if err != nil {
 		return result, err
@@ -203,6 +218,28 @@ func RewriteHistory(vaultDir string, now time.Time) (result RewriteResult, err e
 	moved = false
 	result.Changed = true
 	return result, nil
+}
+
+func retentionPolicy(cfg config.Config) historymodel.Policy {
+	return historymodel.Policy{
+		Items: historymodel.Limits{
+			MaxVersions: cfg.History.Items.MaxVersions,
+			MaxBytes:    cfg.History.Items.MaxBytesPerItem,
+		},
+		Storage: historymodel.Limits{
+			MaxVersions: cfg.History.Storage.MaxVersions,
+			MaxBytes:    cfg.History.Storage.MaxBytesPerItem,
+		},
+		RetainFor: cfg.History.Deleted.RetainFor,
+	}
+}
+
+func distinctBlobCount(versions []historymodel.Version) int {
+	seen := make(map[string]bool, len(versions))
+	for _, version := range versions {
+		seen[version.BlobID] = true
+	}
+	return len(seen)
 }
 
 func retentionEvents(items []historymodel.Item, policy historymodel.Policy, now time.Time, order map[string]int) ([]rewriteEvent, error) {

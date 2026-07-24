@@ -15,8 +15,7 @@ import (
 
 const (
 	supportedFormatVersion = 1
-	configDirName          = ".dredge"
-	configFileName         = "config.toml"
+	configFileName         = "dredge.toml"
 	configDirPermissions   = 0700
 	configFilePermissions  = 0600
 	decimalBase            = 1000
@@ -100,7 +99,7 @@ var (
 
 // Ensure creates the default configuration when absent, then loads and validates it.
 func Ensure(vaultDir string) error {
-	path := filepath.Join(vaultDir, configDirName, configFileName)
+	path := filepath.Join(vaultDir, configFileName)
 	if _, err := os.Stat(path); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to inspect vault configuration: %w", err)
@@ -115,7 +114,11 @@ func Ensure(vaultDir string) error {
 
 // Load reads and validates a vault configuration.
 func Load(vaultDir string) (Config, error) {
-	path := filepath.Join(vaultDir, configDirName, configFileName)
+	path := filepath.Join(vaultDir, configFileName)
+	return loadFile(path)
+}
+
+func loadFile(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to read vault configuration: %w", err)
@@ -252,7 +255,7 @@ func createDefault(path string) error {
 	// configuration another process created after our initial absence check.
 	if err := os.Link(tempPath, path); err != nil {
 		if _, statErr := os.Stat(path); statErr == nil {
-			_, loadErr := Load(filepath.Dir(filepath.Dir(path)))
+			_, loadErr := loadFile(path)
 			return loadErr
 		}
 		return fmt.Errorf("failed to install vault configuration: %w", err)

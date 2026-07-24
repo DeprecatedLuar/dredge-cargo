@@ -15,14 +15,14 @@ func TestPrepareVaultCreatesAndRepairsRequiredFiles(t *testing.T) {
 	if err := PrepareVault(vault); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(vault, ".dredge", "config.toml")); err != nil {
+	if _, err := os.Stat(filepath.Join(vault, "dredge.toml")); err != nil {
 		t.Fatalf("config was not created: %v", err)
 	}
 	ignore, err := os.ReadFile(filepath.Join(vault, ".gitignore"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rule := range []string{"build/", ".spawned/", "links.json", ".dredge/*", "!.dredge/config.toml"} {
+	for _, rule := range []string{"build/", ".spawned/", "links.json"} {
 		if !strings.Contains(string(ignore), rule) {
 			t.Errorf(".gitignore missing %q:\n%s", rule, ignore)
 		}
@@ -31,11 +31,7 @@ func TestPrepareVaultCreatesAndRepairsRequiredFiles(t *testing.T) {
 
 func TestPrepareVaultReturnsConfigValidationError(t *testing.T) {
 	vault := t.TempDir()
-	configDir := filepath.Join(vault, ".dredge")
-	if err := os.MkdirAll(configDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("format = 1\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(vault, "dredge.toml"), []byte("format = 1\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	err := PrepareVault(vault)
