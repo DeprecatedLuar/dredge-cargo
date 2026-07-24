@@ -39,6 +39,25 @@ func TestPlanRetentionAlwaysKeepsMandatoryNewestBlob(t *testing.T) {
 	assertBlobs(t, plan.ItemVersions, "oversized")
 }
 
+func TestPlanRetentionAlwaysKeepsCurrentStorageOnlyBlob(t *testing.T) {
+	item := Item{
+		ID:          "orphan",
+		StorageLive: true,
+		StorageVersions: []Version{
+			{BlobID: "current-storage", Size: 1000},
+		},
+	}
+	plan := PlanRetention(item, Policy{
+		Items:     Limits{MaxVersions: 1, MaxBytes: 1},
+		Storage:   Limits{MaxVersions: 1, MaxBytes: 1},
+		RetainFor: time.Hour,
+	}, time.Now())
+	if plan.Expired || len(plan.StorageVersions) != 1 ||
+		plan.StorageVersions[0].BlobID != "current-storage" {
+		t.Fatalf("current storage-only blob was not retained: %+v", plan)
+	}
+}
+
 func TestPlanRetentionDeletedGraceAndExpiration(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	deletedAt := now.Add(-6 * 24 * time.Hour)

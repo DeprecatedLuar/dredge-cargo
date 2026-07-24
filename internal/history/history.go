@@ -19,7 +19,9 @@ type Item struct {
 	ItemVersions    []Version
 	StorageVersions []Version
 	Live            bool
+	StorageLive     bool
 	DeletedAt       *time.Time
+	DeletedCommitID string
 }
 
 // Limits constrain retained distinct blobs for one path.
@@ -44,10 +46,10 @@ type Retention struct {
 }
 
 // PlanRetention selects distinct blobs newest-first. The newest blob is
-// mandatory for live IDs and for deleted IDs still inside their grace period,
-// even when it alone exceeds a configured limit.
+// mandatory for current paths and for deleted IDs still inside their grace
+// period, even when it alone exceeds a configured limit.
 func PlanRetention(item Item, policy Policy, now time.Time) Retention {
-	expired := !item.Live && (item.DeletedAt == nil ||
+	expired := !item.Live && !item.StorageLive && (item.DeletedAt == nil ||
 		!now.Before(item.DeletedAt.Add(policy.RetainFor)))
 	plan := Retention{ID: item.ID, Expired: expired}
 	if expired {

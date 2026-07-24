@@ -191,6 +191,7 @@ func ReadHistory(vaultDir string) ([]historymodel.Item, error) {
 			} else if _, existed := previousItems[id]; existed {
 				deletedAt := timestamp
 				item.DeletedAt = &deletedAt
+				item.DeletedCommitID = commitID
 			}
 			if current, present := currentStorage[id]; present {
 				if previous, existed := previousStorage[id]; !existed || previous.blobID != current.blobID {
@@ -209,6 +210,10 @@ func ReadHistory(vaultDir string) ([]historymodel.Item, error) {
 	result := make([]historymodel.Item, 0, len(items))
 	for _, item := range items {
 		_, item.Live = previousItems[item.ID]
+		_, item.StorageLive = previousStorage[item.ID]
+		if item.Live {
+			item.DeletedCommitID = ""
+		}
 		item.ItemVersions = distinctVersionsNewest(item.ItemVersions)
 		item.StorageVersions = distinctVersionsNewest(item.StorageVersions)
 		result = append(result, *item)

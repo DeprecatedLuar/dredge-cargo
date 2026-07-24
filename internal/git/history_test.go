@@ -101,7 +101,7 @@ func TestReadHistoryUnionsStorageOnlyIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].ID != "orphan" || got[0].Live ||
+	if len(got) != 1 || got[0].ID != "orphan" || got[0].Live || !got[0].StorageLive ||
 		len(got[0].ItemVersions) != 0 || len(got[0].StorageVersions) != 1 {
 		t.Fatalf("storage-only ID missing: %+v", got)
 	}
