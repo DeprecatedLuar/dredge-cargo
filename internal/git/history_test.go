@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,6 +107,117 @@ func TestReadHistoryUnionsStorageOnlyIDs(t *testing.T) {
 	}
 }
 
+func TestRestoreDeletedItemRestoresTextBlobByteForByte(t *testing.T) {
+	vault := newHistoryRepo(t)
+	want := []byte("opaque\x00encrypted\xffitem")
+	writeHistoryBytes(t, vault, "items/abc", want)
+	commitHistory(t, vault, "2026-04-01T10:00:00Z", "create")
+	removeHistoryFile(t, vault, "items/abc")
+	commitHistory(t, vault, "2026-04-02T10:00:00Z", "delete")
+
+	if err := RestoreDeletedItem(vault, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	assertHistoryFile(t, filepath.Join(vault, "items", "abc"), want)
+	status, err := runGitCommand(vault, "status", "--short", "--", "items/abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(status) != "?? items/abc" {
+		t.Fatalf("restoration was not an ordinary uncommitted addition: %q", status)
+	}
+}
+
+func TestRestoreDeletedItemRestoresNewestBinaryBlobsByteForByte(t *testing.T) {
+	vault := newHistoryRepo(t)
+	oldItem := []byte("old-item")
+	newItem := []byte("new\x00item")
+	oldStorage := []byte{0, 1, 2}
+	newStorage := []byte{255, 0, 127, 42}
+	writeHistoryBytes(t, vault, "items/abc", oldItem)
+	writeHistoryBytes(t, vault, "storage/abc", oldStorage)
+	commitHistory(t, vault, "2026-05-01T10:00:00Z", "create")
+	writeHistoryBytes(t, vault, "items/abc", newItem)
+	writeHistoryBytes(t, vault, "storage/abc", newStorage)
+	commitHistory(t, vault, "2026-05-02T10:00:00Z", "update")
+	removeHistoryFile(t, vault, "items/abc")
+	removeHistoryFile(t, vault, "storage/abc")
+	commitHistory(t, vault, "2026-05-03T10:00:00Z", "delete")
+
+	if err := RestoreDeletedItem(vault, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	assertHistoryFile(t, filepath.Join(vault, "items", "abc"), newItem)
+	assertHistoryFile(t, filepath.Join(vault, "storage", "abc"), newStorage)
+}
+
+func TestRestoreDeletedItemFailsSafely(t *testing.T) {
+	t.Run("live ID", func(t *testing.T) {
+		vault := newHistoryRepo(t)
+		writeHistoryFile(t, vault, "items/abc", "live")
+		commitHistory(t, vault, "2026-06-01T10:00:00Z", "create")
+		err := RestoreDeletedItem(vault, "abc")
+		if err == nil || !strings.Contains(err.Error(), "live in HEAD") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("missing history", func(t *testing.T) {
+		vault := newHistoryRepo(t)
+		writeHistoryFile(t, vault, "unrelated", "content")
+		commitHistory(t, vault, "2026-06-01T10:00:00Z", "create")
+		err := RestoreDeletedItem(vault, "abc")
+		if err == nil || !strings.Contains(err.Error(), "no restorable Git history") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("item collision", func(t *testing.T) {
+		vault := deletedHistoryRepo(t, true)
+		writeHistoryFile(t, vault, "items/abc", "working collision")
+		err := RestoreDeletedItem(vault, "abc")
+		if err == nil || !strings.Contains(err.Error(), "already exists in the working tree") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		assertHistoryFile(t, filepath.Join(vault, "items", "abc"), []byte("working collision"))
+	})
+
+	t.Run("storage collision", func(t *testing.T) {
+		vault := deletedHistoryRepo(t, true)
+		writeHistoryFile(t, vault, "storage/abc", "working collision")
+		err := RestoreDeletedItem(vault, "abc")
+		if err == nil || !strings.Contains(err.Error(), "storage blob") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(vault, "items", "abc")); !os.IsNotExist(statErr) {
+			t.Fatalf("item was partially restored: %v", statErr)
+		}
+	})
+
+	t.Run("storage-only history", func(t *testing.T) {
+		vault := newHistoryRepo(t)
+		writeHistoryFile(t, vault, "storage/abc", "orphan")
+		commitHistory(t, vault, "2026-06-01T10:00:00Z", "orphan")
+		removeHistoryFile(t, vault, "storage/abc")
+		commitHistory(t, vault, "2026-06-02T10:00:00Z", "delete")
+		err := RestoreDeletedItem(vault, "abc")
+		if err == nil || !strings.Contains(err.Error(), "no restorable Git history") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(vault, "storage", "abc")); !os.IsNotExist(statErr) {
+			t.Fatalf("incomplete recovery wrote storage: %v", statErr)
+		}
+	})
+
+	t.Run("invalid ID", func(t *testing.T) {
+		vault := newHistoryRepo(t)
+		err := RestoreDeletedItem(vault, "../abc")
+		if err == nil || !strings.Contains(err.Error(), "invalid item ID") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
 func newHistoryRepo(t *testing.T) string {
 	t.Helper()
 	vault := t.TempDir()
@@ -123,12 +235,51 @@ func newHistoryRepo(t *testing.T) string {
 
 func writeHistoryFile(t *testing.T, vault, name, content string) {
 	t.Helper()
+	writeHistoryBytes(t, vault, name, []byte(content))
+}
+
+func writeHistoryBytes(t *testing.T, vault, name string, content []byte) {
+	t.Helper()
 	fullPath := filepath.Join(vault, filepath.FromSlash(name))
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(fullPath, []byte(content), 0600); err != nil {
+	if err := os.WriteFile(fullPath, content, 0600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func deletedHistoryRepo(t *testing.T, withStorage bool) string {
+	t.Helper()
+	vault := newHistoryRepo(t)
+	writeHistoryFile(t, vault, "items/abc", "item")
+	if withStorage {
+		writeHistoryFile(t, vault, "storage/abc", "storage")
+	}
+	commitHistory(t, vault, "2026-07-01T10:00:00Z", "create")
+	removeHistoryFile(t, vault, "items/abc")
+	if withStorage {
+		removeHistoryFile(t, vault, "storage/abc")
+	}
+	commitHistory(t, vault, "2026-07-02T10:00:00Z", "delete")
+	return vault
+}
+
+func assertHistoryFile(t *testing.T, filePath string, want []byte) {
+	t.Helper()
+	got, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("%s differs: got %v want %v", filePath, got, want)
+	}
+	info, err := os.Stat(filePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("%s permissions = %o, want 600", filePath, info.Mode().Perm())
 	}
 }
 

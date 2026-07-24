@@ -21,6 +21,13 @@ func HandleHistory(args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get dredge directory: %w", err)
 	}
+	if len(args) == 2 && args[0] == "restore" {
+		if err := git.RestoreDeletedItem(vaultDir, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("Restored [%s] from Git history\n", args[1])
+		return nil
+	}
 	items, err := git.ReadHistory(vaultDir)
 	if err != nil {
 		return err
@@ -43,7 +50,7 @@ func HandleHistory(args []string) error {
 	if len(args) == 1 {
 		return printItemHistory(items, args[0], policy, now)
 	}
-	return fmt.Errorf("usage: dredge history [list|deleted|<id>]")
+	return fmt.Errorf("usage: dredge history [list|deleted|<id>|restore <id>]")
 }
 
 func historyPolicy(cfg config.Config) historymodel.Policy {

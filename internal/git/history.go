@@ -2,7 +2,10 @@ package git
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,10 +17,142 @@ import (
 const (
 	itemHistoryDir    = "items"
 	storageHistoryDir = "storage"
+	historyFileMode   = 0600
+	historyDirMode    = 0700
 )
 
 type treeEntry struct {
 	blobID string
+}
+
+// RestoreDeletedItem restores the newest encrypted blobs retained in Git for a
+// deleted ID. It treats the blobs as opaque bytes and leaves them uncommitted.
+func RestoreDeletedItem(vaultDir, id string) error {
+	if _, _, valid := exactHistoryPath(itemHistoryDir + "/" + id); !valid {
+		return fmt.Errorf("invalid item ID %q", id)
+	}
+
+	items, err := ReadHistory(vaultDir)
+	if err != nil {
+		return err
+	}
+	var found *historymodel.Item
+	for index := range items {
+		if items[index].ID == id {
+			found = &items[index]
+			break
+		}
+	}
+	if found == nil || len(found.ItemVersions) == 0 {
+		return fmt.Errorf("no restorable Git history found for %q", id)
+	}
+	if found.Live {
+		return fmt.Errorf("item [%s] is live in HEAD and cannot be restored", id)
+	}
+
+	itemPath := filepath.Join(vaultDir, itemHistoryDir, id)
+	storagePath := filepath.Join(vaultDir, storageHistoryDir, id)
+	if exists, err := pathExists(itemPath); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("item [%s] already exists in the working tree", id)
+	}
+	if exists, err := pathExists(storagePath); err != nil {
+		return err
+	} else if exists {
+		return fmt.Errorf("storage blob [%s] already exists in the working tree", id)
+	}
+
+	itemBlob, err := readGitBlob(vaultDir, found.ItemVersions[0].BlobID)
+	if err != nil {
+		return fmt.Errorf("failed to extract item [%s]: %w", id, err)
+	}
+	var storageBlob []byte
+	hasStorage := len(found.StorageVersions) > 0
+	if hasStorage {
+		storageBlob, err = readGitBlob(vaultDir, found.StorageVersions[0].BlobID)
+		if err != nil {
+			return fmt.Errorf("incomplete recovery for [%s]: storage blob is unavailable: %w", id, err)
+		}
+	}
+
+	itemTemp, err := prepareHistoryTemp(itemPath, itemBlob)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(itemTemp)
+
+	var storageTemp string
+	if hasStorage {
+		storageTemp, err = prepareHistoryTemp(storagePath, storageBlob)
+		if err != nil {
+			return err
+		}
+		defer os.Remove(storageTemp)
+		if err := os.Rename(storageTemp, storagePath); err != nil {
+			return fmt.Errorf("failed to install restored storage blob: %w", err)
+		}
+	}
+	if err := os.Rename(itemTemp, itemPath); err != nil {
+		if hasStorage {
+			_ = os.Remove(storagePath)
+		}
+		return fmt.Errorf("failed to install restored item: %w", err)
+	}
+	return nil
+}
+
+func pathExists(filePath string) (bool, error) {
+	_, err := os.Lstat(filePath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("failed to inspect %s: %w", filePath, err)
+}
+
+func readGitBlob(dir, blobID string) ([]byte, error) {
+	cmd := exec.Command("git", "cat-file", "blob", blobID)
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Git object %s: %w", blobID, err)
+	}
+	return output, nil
+}
+
+func prepareHistoryTemp(destination string, data []byte) (string, error) {
+	if err := os.MkdirAll(filepath.Dir(destination), historyDirMode); err != nil {
+		return "", fmt.Errorf("failed to create restoration directory: %w", err)
+	}
+	temp, err := os.CreateTemp(filepath.Dir(destination), "."+filepath.Base(destination)+"-restore-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create restoration temporary file: %w", err)
+	}
+	tempPath := temp.Name()
+	cleanup := func() {
+		temp.Close()
+		os.Remove(tempPath)
+	}
+	if err := temp.Chmod(historyFileMode); err != nil {
+		cleanup()
+		return "", fmt.Errorf("failed to set restoration permissions: %w", err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		cleanup()
+		return "", fmt.Errorf("failed to write restoration temporary file: %w", err)
+	}
+	if err := temp.Sync(); err != nil {
+		cleanup()
+		return "", fmt.Errorf("failed to sync restoration temporary file: %w", err)
+	}
+	if err := temp.Close(); err != nil {
+		os.Remove(tempPath)
+		return "", fmt.Errorf("failed to close restoration temporary file: %w", err)
+	}
+	return tempPath, nil
 }
 
 // ReadHistory derives Dredge item history from exact paths and Git objects.

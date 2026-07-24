@@ -90,13 +90,15 @@ func HandleHelp(args []string) error {
 		Text("Auto-repair: Renamed symlinks are detected and tracked automatically. Deleted symlinks are cleaned up on session start.")
 
 	historyPage := gohelp.NewPage("history", "Inspect encrypted Git history without decrypting it").
-		Usage("dredge history [list|deleted|<id>]").
+		Usage("dredge history [list|deleted|<id>|restore <id>]").
 		Section("Commands",
 			gohelp.Item("history, history list", "Summarize all current and historical IDs"),
 			gohelp.Item("history deleted", "List deleted IDs still retained for recovery"),
 			gohelp.Item("history <id>", "List item and storage blob versions with retention decisions"),
+			gohelp.Item("history restore <id>", "Restore the newest retained encrypted item and storage blobs"),
 		).
-		Text("History is derived from exact Git paths and object IDs. It never prompts for the vault password.")
+		Text("History is derived from exact Git paths and object IDs. It never prompts for the vault password. Restored blobs are left as ordinary uncommitted additions.").
+		Text("Password rotation limitation: historical blobs are restored byte-for-byte. Blobs created before a password change may not decrypt with the current password; historical re-encryption is not performed.")
 
 	gohelp.Run(append([]string{"help"}, args...), root, addPage, viewPage, editPage, linkPage, historyPage)
 	return nil
