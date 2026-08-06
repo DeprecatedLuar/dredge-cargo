@@ -273,6 +273,64 @@ func syncItemIfNeeded(id string, key []byte) error {
 	return UpdateItem(id, &item, key)
 }
 
+// FlushLinkedItems syncs every linked item's spawned file into the vault
+// (spawned→vault) before a sync push, so local link drift becomes a real
+// commit that git's own conflict detection can reason about.
+func FlushLinkedItems(key []byte) error {
+	manifest, err := LoadManifest()
+	if err != nil {
+		return err
+	}
+	for id := range manifest {
+		if err := syncItemIfNeeded(id, key); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to flush linked item %s: %v\n", id, err)
+		}
+	}
+	return nil
+}
+
+// MaterializeLinkedItems writes each linked item's current vault content out
+// to its spawned file (vault→spawned) after a sync pull, so a remotely
+// pulled change actually reaches the real linked system file. Must only be
+// called after a successful sync — the caller must have already flushed
+// local drift beforehand so any remaining difference is a pulled change.
+func MaterializeLinkedItems(key []byte) error {
+	manifest, err := LoadManifest()
+	if err != nil {
+		return err
+	}
+	for id := range manifest {
+		itemPath, err := GetItemPath(id)
+		if err != nil {
+			continue
+		}
+		encryptedData, err := os.ReadFile(itemPath)
+		if err != nil {
+			continue // item missing; selfheal handles orphaned links separately
+		}
+		decrypted, err := crypto.Decrypt(encryptedData, key)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to materialize linked item %s: %v\n", id, err)
+			continue
+		}
+		var item Item
+		if err := toml.Unmarshal(decrypted, &item); err != nil {
+			continue
+		}
+		spawnedPath, _ := GetSpawnedPath(id)
+		if current, err := os.ReadFile(spawnedPath); err == nil && string(current) == item.Content.Text {
+			continue // already matches, nothing to do
+		}
+		if err := CreateSpawnedFile(id, item.Content.Text); err != nil {
+			return err
+		}
+		if err := UpdateManifestHash(id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // UpdateManifestHash recomputes and updates the hash for a linked item
 func UpdateManifestHash(id string) error {
 	manifest, err := LoadManifest()

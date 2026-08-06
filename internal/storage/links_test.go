@@ -1,9 +1,13 @@
 package storage
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/BurntSushi/toml"
+	"github.com/DeprecatedLuar/dredge-cargo/internal/crypto"
 )
 
 // Test helpers
@@ -357,5 +361,188 @@ func TestUpdateManifestHash_NotLinked(t *testing.T) {
 	// Updating hash for non-linked item should not error
 	if err := UpdateManifestHash("nonexistent"); err != nil {
 		t.Errorf("UpdateManifestHash() failed for non-linked item: %v", err)
+	}
+}
+
+// writeRawItem encrypts and writes item directly to its item file, bypassing
+// UpdateItem (and therefore its spawned-file side effect) — this simulates
+// what a git pull does: it changes the encrypted item on disk without ever
+// touching .spawned/<id> or links.json.
+func writeRawItem(t *testing.T, id string, item *Item) {
+	t.Helper()
+
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(item); err != nil {
+		t.Fatalf("failed to encode item: %v", err)
+	}
+
+	encrypted, err := crypto.Encrypt(buf.Bytes(), testKey)
+	if err != nil {
+		t.Fatalf("failed to encrypt item: %v", err)
+	}
+
+	itemPath, err := GetItemPath(id)
+	if err != nil {
+		t.Fatalf("GetItemPath() failed: %v", err)
+	}
+
+	if err := os.WriteFile(itemPath, encrypted, 0600); err != nil {
+		t.Fatalf("failed to write raw item: %v", err)
+	}
+}
+
+// Flush/Materialize tests
+
+func TestFlushLinkedItems_SyncsSpawnedEditIntoVault(t *testing.T) {
+	_, cleanup := setupLinkTest(t)
+	defer cleanup()
+
+	id := "flushtest"
+	item := NewTextItem("Title", "original content", nil)
+	if err := CreateItem(id, item, testKey); err != nil {
+		t.Fatalf("CreateItem() failed: %v", err)
+	}
+
+	if err := CreateSpawnedFile(id, "original content"); err != nil {
+		t.Fatalf("CreateSpawnedFile() failed: %v", err)
+	}
+	spawnedPath, _ := GetSpawnedPath(id)
+	hash, err := hashFile(spawnedPath)
+	if err != nil {
+		t.Fatalf("hashFile() failed: %v", err)
+	}
+	if err := SaveManifest(LinkManifest{id: {Path: "/fake/target", Hash: hash}}); err != nil {
+		t.Fatalf("SaveManifest() failed: %v", err)
+	}
+
+	// Simulate a direct edit to the real linked file (bypassing dredge edit).
+	if err := os.WriteFile(spawnedPath, []byte("edited directly on disk"), 0600); err != nil {
+		t.Fatalf("failed to edit spawned file: %v", err)
+	}
+
+	if err := FlushLinkedItems(testKey); err != nil {
+		t.Fatalf("FlushLinkedItems() failed: %v", err)
+	}
+
+	// Read the vault content directly (raw), without going through ReadItem,
+	// so this test exercises FlushLinkedItems itself rather than ReadItem's
+	// own lazy sync.
+	itemPath, _ := GetItemPath(id)
+	encrypted, err := os.ReadFile(itemPath)
+	if err != nil {
+		t.Fatalf("failed to read item file: %v", err)
+	}
+	decrypted, err := crypto.Decrypt(encrypted, testKey)
+	if err != nil {
+		t.Fatalf("failed to decrypt item: %v", err)
+	}
+	var updated Item
+	if err := toml.Unmarshal(decrypted, &updated); err != nil {
+		t.Fatalf("failed to unmarshal item: %v", err)
+	}
+
+	if updated.Content.Text != "edited directly on disk" {
+		t.Errorf("FlushLinkedItems() did not sync spawned edit into vault: got %q", updated.Content.Text)
+	}
+
+	// Manifest hash should now reflect the edited spawned file.
+	manifest, err := LoadManifest()
+	if err != nil {
+		t.Fatalf("LoadManifest() failed: %v", err)
+	}
+	newHash, _ := hashFile(spawnedPath)
+	if manifest[id].Hash != newHash {
+		t.Errorf("FlushLinkedItems() left stale manifest hash: got %s, want %s", manifest[id].Hash, newHash)
+	}
+}
+
+func TestMaterializeLinkedItems_WritesVaultContentToSpawnedFile(t *testing.T) {
+	_, cleanup := setupLinkTest(t)
+	defer cleanup()
+
+	id := "materializetest"
+	item := NewTextItem("Title", "vault content v1", nil)
+	if err := CreateItem(id, item, testKey); err != nil {
+		t.Fatalf("CreateItem() failed: %v", err)
+	}
+
+	if err := CreateSpawnedFile(id, "vault content v1"); err != nil {
+		t.Fatalf("CreateSpawnedFile() failed: %v", err)
+	}
+	spawnedPath, _ := GetSpawnedPath(id)
+	hash, err := hashFile(spawnedPath)
+	if err != nil {
+		t.Fatalf("hashFile() failed: %v", err)
+	}
+	if err := SaveManifest(LinkManifest{id: {Path: "/fake/target", Hash: hash}}); err != nil {
+		t.Fatalf("SaveManifest() failed: %v", err)
+	}
+
+	// Simulate a pull: the vault's encrypted content changes on disk, but
+	// nothing touches the spawned file or the manifest (git doesn't know
+	// about either).
+	pulled := NewTextItem("Title", "vault content v2 (pulled)", nil)
+	writeRawItem(t, id, pulled)
+
+	if err := MaterializeLinkedItems(testKey); err != nil {
+		t.Fatalf("MaterializeLinkedItems() failed: %v", err)
+	}
+
+	data, err := os.ReadFile(spawnedPath)
+	if err != nil {
+		t.Fatalf("failed to read spawned file: %v", err)
+	}
+	if string(data) != "vault content v2 (pulled)" {
+		t.Errorf("MaterializeLinkedItems() did not write pulled content to spawned file: got %q", string(data))
+	}
+
+	manifest, err := LoadManifest()
+	if err != nil {
+		t.Fatalf("LoadManifest() failed: %v", err)
+	}
+	newHash, _ := hashFile(spawnedPath)
+	if manifest[id].Hash != newHash {
+		t.Errorf("MaterializeLinkedItems() left stale manifest hash: got %s, want %s", manifest[id].Hash, newHash)
+	}
+}
+
+func TestMaterializeLinkedItems_NoOpWhenAlreadyMatching(t *testing.T) {
+	_, cleanup := setupLinkTest(t)
+	defer cleanup()
+
+	id := "materializenoop"
+	item := NewTextItem("Title", "same content", nil)
+	if err := CreateItem(id, item, testKey); err != nil {
+		t.Fatalf("CreateItem() failed: %v", err)
+	}
+
+	if err := CreateSpawnedFile(id, "same content"); err != nil {
+		t.Fatalf("CreateSpawnedFile() failed: %v", err)
+	}
+	spawnedPath, _ := GetSpawnedPath(id)
+	hash, err := hashFile(spawnedPath)
+	if err != nil {
+		t.Fatalf("hashFile() failed: %v", err)
+	}
+	if err := SaveManifest(LinkManifest{id: {Path: "/fake/target", Hash: hash}}); err != nil {
+		t.Fatalf("SaveManifest() failed: %v", err)
+	}
+
+	before, err := os.Stat(spawnedPath)
+	if err != nil {
+		t.Fatalf("os.Stat() failed: %v", err)
+	}
+
+	if err := MaterializeLinkedItems(testKey); err != nil {
+		t.Fatalf("MaterializeLinkedItems() failed: %v", err)
+	}
+
+	after, err := os.Stat(spawnedPath)
+	if err != nil {
+		t.Fatalf("os.Stat() failed: %v", err)
+	}
+
+	if !before.ModTime().Equal(after.ModTime()) {
+		t.Error("MaterializeLinkedItems() rewrote spawned file when content already matched")
 	}
 }
