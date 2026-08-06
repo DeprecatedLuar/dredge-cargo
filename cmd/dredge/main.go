@@ -392,18 +392,6 @@ func main() {
 		}
 		err = commands.HandleRemote(cmdArgs)
 
-	case "push":
-		if err = runBefore(cmd); err != nil {
-			die(err)
-		}
-		err = commands.HandlePush(cmdArgs)
-
-	case "pull":
-		if err = runBefore(cmd); err != nil {
-			die(err)
-		}
-		err = commands.HandlePull(cmdArgs)
-
 	case "sync":
 		if err = runBefore(cmd); err != nil {
 			die(err)

@@ -31,8 +31,6 @@ func HandleHelp(args []string) error {
 		).
 		Section("Sync",
 			gohelp.Item("remote", "Wire a git remote to the active vault", "dredge remote owner/repo"),
-			gohelp.Item("push", "Reconcile, apply configured retention, and push"),
-			gohelp.Item("pull", "Pull changes from remote (auto-commits first)"),
 			gohelp.Item("sync", "Reconcile, apply configured retention, and push"),
 			gohelp.Item("status", "Show pending changes"),
 			gohelp.Item("history", "Inspect encrypted item history without a password", "dredge history <id>"),
